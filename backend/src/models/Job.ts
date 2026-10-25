@@ -27,6 +27,9 @@ const jobSchema = new Schema(
     descriptionHtml: { type: String, default: '', select: false },
 
     postedAt: { type: Date, default: null },
+    // Sources do not always publish a date. Such listings pass the freshness filter but are
+    // marked so the dashboard never presents their age as verified.
+    postedAtUnknown: { type: Boolean, default: false },
     discoveredAt: { type: Date, default: Date.now, index: true },
     lastVerifiedAt: { type: Date, default: null },
     expiresAt: { type: Date, default: null },

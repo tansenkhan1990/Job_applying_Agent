@@ -65,7 +65,7 @@ Implemented and verified on this machine:
 | Real automatic ATS submission | ❌ intentionally not claimed; manual channel only |
 | OCR of scanned PDFs | ❌ detected and flagged, not performed |
 
-All 67 backend tests pass, and an end-to-end API run covered ingestion → extraction →
+All 68 backend tests pass, and an end-to-end API run covered ingestion → extraction →
 approval → mock submission → downloads → live discovery. Automated tests never contact
 real employers and never call OpenRouter.
 
@@ -343,7 +343,7 @@ npm run build        # esbuild -> dist/
 npm run start        # node dist/index.js
 # Bare-metal backend needs: MONGODB_URI=mongodb://127.0.0.1:27017/job_agent \    #   DOCUMENTS_PATH=../documents npm start
 npm run typecheck
-npm test             # 67 tests, in-memory MongoDB, external APIs mocked
+npm test             # 68 tests, in-memory MongoDB, external APIs mocked
 
 # Frontend (from frontend/)
 npm run dev
@@ -534,7 +534,7 @@ authentication because this is a single-user local application; do not change th
 │   │   ├── app.ts           Express app
 │   │   ├── index.ts         API entry
 │   │   └── worker.ts        scheduler entry
-│   ├── tests/               67 Vitest tests
+│   ├── tests/               68 Vitest tests
 │   ├── Dockerfile
 │   └── package.json
 ├── frontend/

@@ -203,6 +203,9 @@ export function JobsPage() {
                     <span className="text-[11px] text-slate-500">
                       {job.postedAt ? `Posted ${formatDate(job.postedAt)}` : `Discovered ${formatDate(job.discoveredAt)}`}
                     </span>
+                    {job.postedAtUnknown ? (
+                      <Badge tone="neutral">Posted date unknown</Badge>
+                    ) : null}
                   </div>
                   {job.descriptionPreview ? (
                     <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-400">

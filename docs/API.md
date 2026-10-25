@@ -105,7 +105,8 @@ There is no endpoint that accepts a filesystem path. Files are read only from
 | POST | `/jobs/:id/verify` | Best-effort availability check with evidence |
 
 Discovery stores only vacancies posted inside `search.freshnessDays` (default `3`). A
-listing without a publication date is kept and flagged `posted_date_unknown`. Each item
+listing without a publication date is kept with `postedAtUnknown: true` (the UI labels it), so
+freshness is never silently assumed. Each item
 returned by `GET /jobs` also carries the stored application for that vacancy:
 
 ```json

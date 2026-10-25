@@ -242,6 +242,7 @@ export interface Job {
   description?: string;
   descriptionPreview?: string;
   postedAt: string | null;
+  postedAtUnknown?: boolean;
   discoveredAt: string;
   lastVerifiedAt: string | null;
   expiresAt: string | null;

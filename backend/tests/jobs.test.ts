@@ -115,6 +115,15 @@ describe('job upsert and deduplication', () => {
     expect(job?.mergedSources).toContain('remotive');
   });
 
+  it('persists the unknown-publication-date marker', async () => {
+    const [listing] = await mockAdapter.searchJobs(baseCriteria);
+    await upsertJobListings([
+      { ...listing, sourceJobId: 'synthetic-undated', postedAt: null },
+    ]);
+    const stored = await JobModel.findOne({ sourceJobId: 'synthetic-undated' });
+    expect(stored?.postedAtUnknown).toBe(true);
+  });
+
   it('detects duplicates within a batch', async () => {
     const [listing] = await mockAdapter.searchJobs(baseCriteria);
     const result = await upsertJobListings([listing, listing]);

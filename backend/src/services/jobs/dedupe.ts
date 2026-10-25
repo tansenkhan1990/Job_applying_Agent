@@ -31,6 +31,7 @@ function jobFields(listing: JobListing) {
     description: listing.description,
     descriptionHtml: listing.descriptionHtml ?? '',
     postedAt: listing.postedAt,
+    postedAtUnknown: !listing.postedAt,
     expiresAt: listing.expiresAt,
     languageRequirement: listing.languageRequirement,
     seniority: listing.seniority,
