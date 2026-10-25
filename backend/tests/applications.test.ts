@@ -5,6 +5,7 @@ import { JobModel } from '../src/models/Job.js';
 import { ApplicationModel } from '../src/models/Application.js';
 import { CandidateProfileModel } from '../src/models/CandidateProfile.js';
 import { DocumentModel } from '../src/models/Document.js';
+import { JobMatchModel } from '../src/models/JobMatch.js';
 import { runDiscovery } from '../src/services/jobs/discovery.js';
 import { duplicateKeyFor } from '../src/services/applications/service.js';
 import { ensureDefaultProfiles } from '../src/services/profilesService.js';
@@ -176,6 +177,27 @@ describe('application workflow', () => {
 
     const count = await ApplicationModel.countDocuments({});
     expect(count).toBe(1);
+  });
+
+  it('prefers an approved profile when the highest-scoring match is still draft', async () => {
+    const { fullStackJob, devopsProfile } = await seedMockJobs();
+    await CandidateProfileModel.updateOne(
+      { _id: devopsProfile._id },
+      { $set: { status: 'draft' } },
+    );
+
+    await request(app).post(`/api/jobs/${fullStackJob._id}/match`).send({});
+    await JobMatchModel.updateOne(
+      { job: fullStackJob._id, profile: devopsProfile._id },
+      { $set: { score: 99 } },
+    );
+
+    const prepared = await request(app)
+      .post('/api/applications/prepare')
+      .send({ jobId: String(fullStackJob._id) });
+    expect(prepared.status).toBe(201);
+    expect(prepared.body.application.profileKind).not.toBe('devops_cloud');
+    expect(['full_stack', 'ai_engineer']).toContain(prepared.body.application.profileKind);
   });
 
   it('invalidates approval after the cover letter is edited', async () => {

@@ -109,17 +109,29 @@ async function resolveProfile(input: {
     if (!profile) throw notFound('Candidate profile');
     return profile;
   }
-  const existing = await JobMatchModel.findOne({ job: job._id }).sort({ score: -1 });
-  if (existing) {
-    const profile = await CandidateProfileModel.findById(existing.profile);
-    if (profile) return profile;
+  // Prefer the highest-scoring match whose profile was actually approved. Picking the
+  // highest score regardless of status sent draft profiles to requireApprovedProfile even
+  // when another matched profile was ready to use.
+  const existing = await JobMatchModel.find({ job: job._id }).sort({ score: -1 });
+  for (const match of existing) {
+    const profile = await CandidateProfileModel.findById(match.profile);
+    if (profile?.status === 'approved') return profile;
   }
+
   const matches = await matchJob(String(job._id));
-  const best = [...matches].sort((a, b) => b.score - a.score)[0];
-  if (!best) throw badRequest('No profile could be matched to this job');
-  const profile = await CandidateProfileModel.findById(best.profile);
-  if (!profile) throw notFound('Candidate profile');
-  return profile;
+  const sorted = [...matches].sort((a, b) => b.score - a.score);
+  for (const match of sorted) {
+    const profile = await CandidateProfileModel.findById(match.profile);
+    if (profile?.status === 'approved') return profile;
+  }
+  if (sorted.length === 0) throw badRequest('No profile could be matched to this job');
+
+  const fallback = await CandidateProfileModel.findById(sorted[0].profile);
+  if (!fallback) throw notFound('Candidate profile');
+  throw conflict(
+    'No matched candidate profile is approved. Approve a profile or choose an approved profile explicitly before preparing an application.',
+    { profileId: String(fallback._id), kind: fallback.kind, status: fallback.status },
+  );
 }
 
 export interface PrepareResult {

@@ -119,9 +119,19 @@ export function JobDetailPage() {
   const { job, matches } = detail.data;
   const sortedMatches = [...matches].sort((a, b) => b.score - a.score);
   const approvedProfiles = (profiles.data ?? []).filter((profile) => profile.status === 'approved');
+  const approvedProfileIds = new Set(approvedProfiles.map((profile) => profile.id));
+  const topApprovedMatch = sortedMatches.find(
+    (match) => typeof match.profile !== 'string' && approvedProfileIds.has(match.profile.id),
+  );
   const topProfileId =
-    sortedMatches[0] && typeof sortedMatches[0].profile !== 'string' ? sortedMatches[0].profile.id : '';
-  const chosen = profileId || topProfileId;
+    topApprovedMatch && typeof topApprovedMatch.profile !== 'string' ? topApprovedMatch.profile.id : '';
+  // Never preselect a draft profile: the select only lists approved profiles, so a draft
+  // id would otherwise be submitted while the UI appears to show an approved one.
+  const chosen =
+    (profileId && approvedProfileIds.has(profileId) ? profileId : '') ||
+    topProfileId ||
+    approvedProfiles[0]?.id ||
+    '';
 
   return (
     <div className="space-y-5">
