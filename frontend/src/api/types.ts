@@ -406,6 +406,7 @@ export interface Application {
   profileKind: string;
   selectedCvFilename: string;
   selectedCoverLetterFilename: string;
+  sourceCoverLetterFilename: string;
   preparationStartedAt: string | null;
   formFilledAt: string | null;
   workflow: ApplicationWorkflow;

@@ -86,11 +86,27 @@ export function titleRelevance(title: string, targetTitles: string[]): number {
   return best;
 }
 
+const REMOTE_RESTRICTION_AFTER =
+  /\b(?:only|must (?:be )?(?:based|reside|live|located)|residents? of|eligible to work|authorized to work|work authorization|permission to work)\b[^.]{0,90}\b(?:united states|usa|u\.s\.|canada|india|australia|brazil|philippines|singapore|japan|china|mexico|argentina|south africa)\b/i;
+const REMOTE_RESTRICTION_BEFORE =
+  /\b(?:united states|usa|u\.s\.|canada|india|australia|brazil|philippines|singapore|japan|china|mexico|argentina|south africa)\b[^.]{0,40}\b(?:only|residents? only)\b/i;
+
+/**
+ * A remote listing can be restricted in its description even when the location field only
+ * says "Remote". Explicit non-EU residency/work-authorisation requirements are excluded
+ * instead of being treated as open to applicants in Germany.
+ */
+export function hasNonEuRemoteRestriction(job: JobListing): boolean {
+  const text = `${job.location}\n${job.description.slice(0, 6_000)}`;
+  return REMOTE_RESTRICTION_AFTER.test(text) || REMOTE_RESTRICTION_BEFORE.test(text);
+}
+
 export function isLocationAllowed(job: JobListing, criteria: JobSearchCriteria): boolean {
   const locationText = normalizeForMatch(`${job.location} ${job.title}`);
   if (job.workArrangement === 'remote') {
-    if (job.country === 'Germany') return true;
-    return isEuRemoteLocation(job.location);
+    if (!isEuRemoteLocation(job.location)) return false;
+    if (hasNonEuRemoteRestriction(job)) return false;
+    return job.country === 'Germany' || isEuRemoteLocation(job.location);
   }
   const countryAllowed =
     job.country.length === 0 ||

@@ -37,6 +37,16 @@ describe('English-first language classification', () => {
     expect(result.languageConfidence).toBeGreaterThanOrEqual(90);
   });
 
+  it('excludes a job that mandates both English and German', () => {
+    const result = classify(
+      'English is required for this role. Sehr gute Deutschkenntnisse (B2) sind ebenfalls zwingend erforderlich fuer die Kundenbetreuung.',
+    );
+    expect(result.englishRequired).toBe(true);
+    expect(result.germanRequired).toBe(true);
+    expect(result.languageDecision).toBe('Excluded');
+    expect(result.jobLanguage).toBe('Mixed');
+  });
+
   it('marks an ambiguous language requirement as Needs Review', () => {
     const result = classify(
       'Join our international team in Berlin. We work with modern technologies and value communication.',

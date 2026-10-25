@@ -48,7 +48,8 @@ Content-Type: application/json
   "search": {
     "minRelevanceScore": 80,
     "maxJobsPerRun": 40,
-    "freshnessDays": 3,
+    "freshnessDays": 365,
+    "minAgeMonths": 3,
     "excludeGermanRequired": true
   },
   "application": { "mode": "approval_required", "maxDailyApplications": 5 }
@@ -114,7 +115,9 @@ German-optional (`german_preferred`), explicitly not-required (`german_not_requi
 unclassified (`unknown`) postings are kept. Discovery applies the same rule by default via
 `search.excludeGermanRequired`; set it to `false` in Settings to store every vacancy.
 
-Discovery stores only vacancies posted inside `search.freshnessDays` (default `3`). A
+Discovery stores only vacancies posted inside `search.freshnessDays` (default `365`, a
+one-year retention window). The application workflow separately requires the original
+posting date to be at least three calendar months old. A
 listing without a publication date is kept with `postedAtUnknown: true` (the UI labels it), so
 freshness is never silently assumed.
 

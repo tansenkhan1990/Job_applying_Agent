@@ -162,9 +162,14 @@ export function ApplicationQueuePage() {
                     {application.ageReason}
                   </p>
                   <p className="mt-1 text-xs text-slate-400">
-                    CV: {application.selectedCvFilename || 'selected CV'} · Cover letter:{' '}
+                    CV: {application.selectedCvFilename || 'selected CV'} · Uploaded cover letter:{' '}
                     {application.selectedCoverLetterFilename || 'tailored letter'}
                   </p>
+                  {application.sourceCoverLetterFilename ? (
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Grounded in your mapped letter {application.sourceCoverLetterFilename}
+                    </p>
+                  ) : null}
                   {job?.url ? (
                     <a
                       href={job.url}

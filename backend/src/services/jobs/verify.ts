@@ -3,6 +3,7 @@ import { logger } from '../../utils/logger.js';
 import { getAdapter } from './adapters/index.js';
 import { assessJobAge } from './age.js';
 import { getSettings } from '../settingsService.js';
+import { isSafeRemoteUrl } from '../../utils/urlSafety.js';
 
 export interface AvailabilityResult {
   status: 'available' | 'unavailable' | 'unknown';
@@ -20,7 +21,14 @@ export async function verifyJobAvailability(jobId: string): Promise<Availability
   const adapter = getAdapter(job.source);
   let result: AvailabilityResult;
 
-  if (adapter?.verifyJob) {
+  if (!isSafeRemoteUrl(job.url)) {
+    // Listing URLs are untrusted feed data; never let them make the backend fetch local or
+    // private-network targets.
+    result = {
+      status: 'unknown',
+      evidence: 'The listing URL is not a public http(s) URL; availability was not checked.',
+    };
+  } else if (adapter?.verifyJob) {
     try {
       result = await adapter.verifyJob({
         url: job.url,

@@ -129,7 +129,10 @@ const applicationSchema = new Schema(
     matchExplanation: { type: String, default: '' },
     profileKind: { type: String, default: '' },
     selectedCvFilename: { type: String, default: '' },
+    // The generated PDF that is actually uploaded by the browser runner.
     selectedCoverLetterFilename: { type: String, default: '' },
+    // The mapped source cover letter used as grounding/reference, kept for traceability.
+    sourceCoverLetterFilename: { type: String, default: '' },
     preparationStartedAt: { type: Date, default: null },
     formFilledAt: { type: Date, default: null },
 

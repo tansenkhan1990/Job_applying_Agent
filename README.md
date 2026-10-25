@@ -55,7 +55,7 @@ Implemented and verified on this machine:
 | Remotive integration | ✅ live: 10 raw listings in a 20-job run |
 | Mock source for offline testing | ✅ 8 fictional listings |
 | Normalization, dedupe, German requirement/optional detection and filtering | ✅ automated tests |
-| Three-day freshness window for discovery (configurable 1–90 days) | ✅ automated tests |
+| One-year retention window for discovery (configurable 30–3650 days) plus a three-calendar-month application minimum | ✅ automated tests |
 | Permanent applied-job registry; never re-applies to a stored application | ✅ automated tests |
 | Hybrid matching with explanations and mandatory-requirement review | ✅ automated tests |
 | Tailored cover letters with grounding checks | ✅ AI + template fallback |
@@ -65,7 +65,7 @@ Implemented and verified on this machine:
 | Real automatic ATS submission | ❌ intentionally not claimed; manual channel only |
 | OCR of scanned PDFs | ❌ detected and flagged, not performed |
 
-All 77 backend tests pass, and an end-to-end API run covered ingestion → extraction →
+All backend tests pass, and an end-to-end API run covered ingestion → extraction →
 approval → mock submission → downloads → live discovery. Automated tests never contact
 real employers and never call OpenRouter.
 
@@ -220,6 +220,43 @@ Behaviour:
   rule-based scoring, keyword-based profile extraction and a clearly labelled template
   cover letter. No AI claims are fabricated.
 
+## Human-supervised browser runner
+
+The Playwright runner is deliberately **not** in Docker: it runs on your laptop so you can
+see and edit the form. It never clicks Submit/Apply/Send, never presses Enter and never
+calls `form.submit()` or a submission API.
+
+```bash
+# once, on the host
+cd backend
+npx playwright install chromium
+
+# generate a shared secret and put it in .env (backend + runner)
+#   BROWSER_RUNNER_TOKEN=$(openssl rand -hex 32)
+
+# with the backend running (Docker or `npm run dev`)
+npm run runner
+```
+
+Flow:
+
+1. In the dashboard, prepare an eligible application and press **Start application
+   assistant**. The backend re-checks posting age, availability, language, match and
+   duplicates before queueing it.
+2. The runner polls `/api/automation/next`, opens the employer page in a visible persistent
+   Chromium profile, fills only fields backed by your approved profile/CV, uploads the
+   selected CV and the reviewed tailored cover-letter PDF, and reports every skipped or
+   unknown field.
+3. The browser stays open. You complete login/MFA/CAPTCHA, sensitive questions, legal
+   declarations and the final Submit click yourself, then record the outcome in the
+   dashboard (with evidence if you mark it submitted).
+
+Environment for the runner: `JOB_AGENT_API_URL` (default `http://127.0.0.1:3000/api`),
+`BROWSER_RUNNER_TOKEN`, `JOB_AGENT_RUNNER_ID`, `JOB_AGENT_RUNNER_PROFILE` (default
+`backend/.runner-profile`) and `JOB_AGENT_ALLOW_LOCAL_URLS=true` only when testing a local
+mock form. The runner refuses non-http(s), loopback and private-network application URLs by
+default.
+
 ## Job sources
 
 | Source | Access | Behaviour | Notes |
@@ -231,9 +268,11 @@ Behaviour:
 Adapters implement a common interface (`searchJobs`, optional `getJobDetails`/`verifyJob`).
 Discovery:
 
-- **only stores vacancies posted within the freshness window — three days by default**
-  (Settings → Freshness window, 1–90 days). Listings whose source provides no publication
-  date are kept and flagged `posted_date_unknown` rather than silently assumed fresh;
+- **stores vacancies inside the retention window — one year by default**
+  (Settings → retention, 30–3650 days). The application workflow separately requires an
+  original posting date at least three calendar months old. Listings whose source provides
+  no publication date are kept and flagged `posted_date_unknown` rather than silently
+  assumed fresh;
 - normalizes title, employer, location, work arrangement, language requirement, seniority;
 - filters internships, unpaid roles, stale postings, out-of-scope locations and excluded
   keywords;
@@ -254,8 +293,8 @@ test. Do not add scraping that violates a site's terms.
 
 ## Daily workflow
 
-1. **Discover** — bounded search in enabled sources, limited to vacancies posted in the
-   last three days by default. Each run is recorded with per-source counts and errors; only
+1. **Discover** — bounded search in enabled sources for vacancies inside the retention
+   window (one year by default). Each run is recorded with per-source counts and errors; only
    one run may execute at a time. The per-source split respects the overall `maxJobsPerRun`
    budget. Only vacancies where German is not required or optional are stored by default
    (Settings → **Only keep jobs where German is not required or optional**).
@@ -331,6 +370,8 @@ Copy `.env.example` to `.env`. `.env` is git-ignored.
 | `SCHEDULER_ENABLED` | `false` | Enable scheduler inside the API process |
 | `ENABLE_MOCK_SOURCE` | `true` | Allow the fictional source to be enabled |
 | `ALLOW_MOCK_SUBMISSION` | `false` | Permit simulated submission for mock jobs only |
+| `BROWSER_RUNNER_TOKEN` | empty | Shared secret for the host Playwright runner; empty disables its API |
+| `JOB_AGENT_ALLOW_LOCAL_URLS` | `false` | Runner-only: permit local mock-form URLs (never for real applications) |
 | `MONGO_HOST_PORT` | `127.0.0.1:27017` | Loopback-only MongoDB host binding |
 
 Search, scoring, schedule, application mode and model are stored as non-secret settings
@@ -348,7 +389,7 @@ npm run build        # esbuild -> dist/
 npm run start        # node dist/index.js
 # Bare-metal backend needs: MONGODB_URI=mongodb://127.0.0.1:27017/job_agent \    #   DOCUMENTS_PATH=../documents npm start
 npm run typecheck
-npm test             # 77 tests, in-memory MongoDB, external APIs mocked
+npm test             # in-memory MongoDB, external APIs mocked
 
 # Frontend (from frontend/)
 npm run dev
@@ -450,7 +491,7 @@ Coverage:
 - German requirement detection (`german_required`, `german_preferred`,
   `german_not_required`) including negations and the German-optional discovery filter
 - jobs API filter that hides German-mandatory vacancies from the default list
-- freshness window (three-day default), unknown publication dates flagged
+- retention window, unknown publication dates flagged
 - internships/unpaid/expired/location/title filters
 - dedupe by source id, canonical URL and batch duplicates
 - mock discovery, search-run persistence, overlap rejection, repeat runs
@@ -565,7 +606,7 @@ authentication because this is a single-user local application; do not change th
 │   │   ├── app.ts           Express app
 │   │   ├── index.ts         API entry
 │   │   └── worker.ts        scheduler entry
-│   ├── tests/               77 Vitest tests
+│   ├── tests/               Vitest integration and unit tests
 │   ├── Dockerfile
 │   └── package.json
 ├── frontend/

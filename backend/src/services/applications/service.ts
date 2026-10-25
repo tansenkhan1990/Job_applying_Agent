@@ -11,6 +11,7 @@ import { env } from '../../config/env.js';
 import { getSettings } from '../settingsService.js';
 import { matchJob } from '../matching/index.js';
 import { generateCoverLetter, saveCoverLetterVersion } from '../coverLetters/generate.js';
+import { coverLetterPdfFilename } from '../coverLetters/render.js';
 import { extractScreeningQuestions, unansweredRequired } from './questions.js';
 import { resolveSubmissionAdapter } from './submission.js';
 import { applyTransition } from './stateMachine.js';
@@ -249,7 +250,8 @@ export async function prepareApplication(input: {
     matchExplanation: match.explanation,
     profileKind: profile.kind,
     selectedCvFilename: cv.filename,
-    selectedCoverLetterFilename: coverLetterDocument?.filename ?? '',
+    selectedCoverLetterFilename: coverLetterPdfFilename(job.employer),
+    sourceCoverLetterFilename: coverLetterDocument?.filename ?? '',
     preparationStartedAt: new Date(),
     status: 'READY_FOR_REVIEW',
     version: 1,
@@ -391,9 +393,7 @@ export async function approveApplication(
     note: input.note ?? '',
   };
   application.set('approval', approval);
-  applyTransition(application, 'APPROVED', 'Explicit local user approval recorded');
-  const lastHistory = application.statusHistory[application.statusHistory.length - 1];
-  if (lastHistory) lastHistory.source = 'user';
+  applyTransition(application, 'APPROVED', 'Explicit local user approval recorded', 'user');
   await application.save();
 
   logger.info(
@@ -628,9 +628,12 @@ export async function confirmManualSubmission(id: string, input: { note?: string
     throw conflict('Submission is already confirmed.');
   }
 
-  applyTransition(application, 'SUBMITTED', 'User confirmed completing the employer form manually');
-  const lastManualHistory = application.statusHistory[application.statusHistory.length - 1];
-  if (lastManualHistory) lastManualHistory.source = 'user';
+  applyTransition(
+    application,
+    'SUBMITTED',
+    'User confirmed completing the employer form manually',
+    'user',
+  );
   application.set('appliedAt', new Date());
   application.set('submission', {
     ...(application.submission ?? {}),
@@ -655,7 +658,7 @@ export async function cancelApplication(id: string, reason = '') {
     throw conflict('A submission is in progress; wait for the outcome before cancelling.');
   }
   if (application.status === 'WITHDRAWN') return application;
-  applyTransition(application, 'WITHDRAWN', reason || 'Application withdrawn locally');
+  applyTransition(application, 'WITHDRAWN', reason || 'Application withdrawn locally', 'user');
   await application.save();
   return application;
 }

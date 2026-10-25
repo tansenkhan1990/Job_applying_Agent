@@ -194,6 +194,20 @@ describe('settings migration', () => {
     const settings = await getSettings();
     expect(settings.search.excludeGermanRequired).toBe(true);
   });
+
+  it('persists a model selected in settings without exposing the API key', async () => {
+    const app = createApp();
+    const updated = await request(app)
+      .patch('/api/settings')
+      .send({ ai: { model: 'google/gemini-2.5-flash' } });
+    expect(updated.status).toBe(200);
+    expect(updated.body.settings.ai.model).toBe('google/gemini-2.5-flash');
+
+    const fetched = await request(app).get('/api/settings');
+    expect(fetched.body.settings.ai.model).toBe('google/gemini-2.5-flash');
+    expect(fetched.body.ai).not.toHaveProperty('apiKey');
+    expect(JSON.stringify(fetched.body.ai)).not.toMatch(/sk-or-v1-/);
+  });
 });
 
 describe('discovery runs', () => {
@@ -216,6 +230,19 @@ describe('discovery runs', () => {
     expect(run?.status).toBe('completed');
     expect(run?.sources[0]?.source).toBe('mock');
     expect(run?.duplicates).toBeGreaterThanOrEqual(0);
+  });
+
+  it('stores an age classification and reason for every discovered job with a date', async () => {
+    await seedApprovedProfiles();
+    await runDiscovery({ trigger: 'manual', overrides: { sources: ['mock'] } });
+    const jobs = await JobModel.find({ source: 'mock' });
+    expect(jobs.length).toBeGreaterThan(0);
+    for (const job of jobs) {
+      expect(job.postedAt).toBeInstanceOf(Date);
+      expect(['Eligible', 'Too Recent']).toContain(job.ageEligibility);
+      expect(job.ageReason.length).toBeGreaterThan(10);
+      expect(job.eligibleAfter).toBeInstanceOf(Date);
+    }
   });
 
   it('defaults to keeping only non-German-required vacancies', async () => {

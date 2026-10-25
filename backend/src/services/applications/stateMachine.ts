@@ -24,15 +24,24 @@ export function assertTransition(from: ApplicationStatus, to: ApplicationStatus)
   }
 }
 
+export type TransitionSource = 'AI' | 'user' | 'system';
+
 interface Transitionable {
   status: ApplicationStatus;
-  statusHistory: Array<{ from?: string; to: ApplicationStatus; at: Date; reason?: string }>;
+  statusHistory: Array<{
+    from?: string;
+    to: ApplicationStatus;
+    at: Date;
+    reason?: string;
+    source?: TransitionSource;
+  }>;
 }
 
 export function applyTransition<T extends Transitionable>(
   application: T,
   to: ApplicationStatus,
   reason = '',
+  source: TransitionSource = 'system',
 ): T {
   assertTransition(application.status, to);
   application.statusHistory.push({
@@ -40,6 +49,7 @@ export function applyTransition<T extends Transitionable>(
     to,
     at: new Date(),
     reason,
+    source,
   });
   application.status = to;
   return application;

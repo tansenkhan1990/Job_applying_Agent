@@ -11,7 +11,7 @@ import { env } from '../../config/env.js';
 import type { WorkflowStatus } from '../../config/defaults.js';
 import { applyTransition } from '../applications/stateMachine.js';
 import { assertApplicationEligible } from '../jobs/eligibility.js';
-import { renderLetterPdf } from '../coverLetters/render.js';
+import { coverLetterPdfFilename, renderLetterPdf } from '../coverLetters/render.js';
 import { AppError, badRequest, conflict, notFound } from '../../utils/errors.js';
 import type { ApplicationDoc, JobDoc, ProfileDoc } from '../../types/models.js';
 
@@ -545,7 +545,7 @@ export async function readCoverLetterFile(applicationId: string) {
   });
   return {
     data,
-    filename: `${(application.employer || 'employer').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-cover-letter.pdf`,
+    filename: coverLetterPdfFilename(application.employer),
     contentType: 'application/pdf',
   };
 }

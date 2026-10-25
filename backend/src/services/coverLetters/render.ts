@@ -7,6 +7,11 @@ export interface LetterContent {
   candidateName?: string;
 }
 
+/** The exact file name the generated PDF is stored and uploaded under. */
+export function coverLetterPdfFilename(employer: string): string {
+  return `${(employer || 'employer').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-cover-letter.pdf`;
+}
+
 export async function renderLetterPdf(content: LetterContent): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 60, size: 'A4' });

@@ -13,7 +13,9 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import { chromium, type BrowserContext, type Page } from 'playwright';
-import { mapFields, type CandidateData, type FieldDescriptor, type FormAction } from './formMapping.js';
+import type { CandidateData } from './formMapping.js';
+import { fillVisibleForm } from './fillForm.js';
+import { assertNavigableApplicationUrl } from '../utils/urlSafety.js';
 
 const API = (process.env.JOB_AGENT_API_URL ?? 'http://127.0.0.1:3000/api').replace(/\/+$/, '');
 const TOKEN = (process.env.BROWSER_RUNNER_TOKEN ?? '').trim();
@@ -131,104 +133,6 @@ async function downloadFile(route: string, baseName: string): Promise<string> {
   return filePath;
 }
 
-async function collectFields(page: Page): Promise<FieldDescriptor[]> {
-  const fields = await page.evaluate(() => {
-    const nodes = Array.from(
-      document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
-        'input, textarea, select',
-      ),
-    );
-    const output: Array<Record<string, unknown>> = [];
-    let index = 0;
-    for (const element of nodes) {
-      const style = window.getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      const hiddenByAttribute = element.hidden;
-      const visible =
-        style.visibility !== 'hidden' &&
-        style.display !== 'none' &&
-        rect.width > 0 &&
-        rect.height > 0 &&
-        !hiddenByAttribute;
-      const labels = element.labels ? Array.from(element.labels).map((label) => label.innerText) : [];
-      const wrapper = element.closest(
-        '.form-group, .field, .form-field, .application-question, fieldset, .question, [role="group"]',
-      );
-      const wrapperLabel =
-        wrapper?.querySelector('label, legend')?.textContent?.trim() ?? '';
-      element.setAttribute('data-ja-field', String(index));
-      const tag = element.tagName.toLowerCase() as 'input' | 'textarea' | 'select';
-      const type = tag === 'input' ? element.type || 'text' : tag;
-      output.push({
-        index,
-        tag,
-        type,
-        name: element.getAttribute('name') ?? '',
-        id: element.id ?? '',
-        label: (labels.join(' ') || wrapperLabel).replace(/\s+/g, ' ').trim(),
-        placeholder: element.getAttribute('placeholder') ?? '',
-        ariaLabel: element.getAttribute('aria-label') ?? '',
-        autocomplete: element.getAttribute('autocomplete') ?? '',
-        required: element.required || element.getAttribute('aria-required') === 'true',
-        visible,
-        disabled: element.disabled,
-        value: tag === 'select' ? element.value : element.value ?? '',
-        options:
-          tag === 'select'
-            ? Array.from((element as HTMLSelectElement).options).map((option) => option.text.trim())
-            : [],
-      });
-      index += 1;
-    }
-    return output;
-  });
-  return fields as unknown as FieldDescriptor[];
-}
-
-async function scrollForm(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const step = Math.max(300, Math.floor(window.innerHeight * 0.8));
-    for (let y = 0; y < document.body.scrollHeight; y += step) {
-      window.scrollTo(0, y);
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
-    window.scrollTo(0, document.body.scrollHeight);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    window.scrollTo(0, 0);
-  });
-}
-
-async function applyAction(
-  page: Page,
-  action: FormAction,
-  files: { cv: string | null; coverLetter: string | null },
-): Promise<boolean> {
-  if (action.kind === 'skip') return false;
-  const locator = page.locator(`[data-ja-field="${action.index}"]`).first();
-  if ((await locator.count()) === 0) return false;
-
-  try {
-    if (action.kind === 'file') {
-      const filePath = action.value === 'cv' ? files.cv : files.coverLetter;
-      if (!filePath) return false;
-      await locator.setInputFiles(filePath);
-      return true;
-    }
-    if (action.kind === 'select') {
-      try {
-        await locator.selectOption({ label: action.value });
-      } catch {
-        await locator.selectOption(action.value);
-      }
-      return true;
-    }
-    await locator.fill(action.value);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function ensureContext(): Promise<BrowserContext> {
   if (context) return Promise.resolve(context);
   return chromium
@@ -239,6 +143,25 @@ function ensureContext(): Promise<BrowserContext> {
       acceptDownloads: false,
     })
     .then(async (launched) => {
+      // Guard every request, including redirects: a public listing may redirect to a
+      // loopback/private service. Non-http(s) subresources are blocked as well.
+      await launched.route('**/*', async (route) => {
+        const url = route.request().url();
+        if (
+          url.startsWith('data:') ||
+          url.startsWith('blob:') ||
+          url.startsWith('about:')
+        ) {
+          await route.continue();
+          return;
+        }
+        try {
+          assertNavigableApplicationUrl(url);
+          await route.continue();
+        } catch {
+          await route.abort('blockedbyclient');
+        }
+      });
       context = launched;
       return launched;
     })
@@ -265,9 +188,10 @@ async function runSession(session: RunnerSession): Promise<void> {
   });
 
   try {
-    await page.goto(session.applicationUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    // The listing URL is untrusted input: only public http(s) pages may be opened.
+    const targetUrl = assertNavigableApplicationUrl(session.applicationUrl);
+    await page.goto(targetUrl.toString(), { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await page.waitForTimeout(1_500);
-    await scrollForm(page);
 
     const control = await getControl(session.applicationId);
     if (control.stopRequested) {
@@ -279,14 +203,6 @@ async function runSession(session: RunnerSession): Promise<void> {
       return;
     }
 
-    const descriptors = await collectFields(page);
-    const mapping = mapFields(descriptors, {
-      ...session.candidate,
-      languages: session.profile.languages,
-      education: session.profile.education,
-      experience: session.profile.experience,
-    });
-
     const files = {
       cv: session.files.cv ? await downloadFile(session.files.cv, 'cv') : null,
       coverLetter: session.files.coverLetter
@@ -294,42 +210,34 @@ async function runSession(session: RunnerSession): Promise<void> {
         : null,
     };
 
-    let filled = 0;
-    let uploaded = 0;
-    for (const action of mapping.actions) {
-      if (action.kind === 'skip') continue;
-      const current = await getControl(session.applicationId).catch(() => null);
-      if (current?.stopRequested || current?.pauseRequested) break;
-      const ok = await applyAction(page, action, files);
-      if (ok && action.kind === 'file') uploaded += 1;
-      else if (ok) filled += 1;
-      await sleep(120);
-    }
+    const summary = await fillVisibleForm(
+      page,
+      {
+        ...session.candidate,
+        languages: session.profile.languages,
+        education: session.profile.education,
+        experience: session.profile.experience,
+      },
+      files,
+      async () => {
+        const current = await getControl(session.applicationId).catch(() => null);
+        return Boolean(current?.stopRequested || current?.pauseRequested);
+      },
+    );
 
-    const refreshed = await collectFields(page);
-    const remaining = mapFields(refreshed, {
-      ...session.candidate,
-      languages: session.profile.languages,
-      education: session.profile.education,
-      experience: session.profile.experience,
-    });
-    const validationErrors = await page
-      .locator('[aria-invalid="true"], .error, .field-error, .invalid-feedback')
-      .allInnerTexts()
-      .catch(() => []);
-
+    const unanswered = summary.remaining.unanswered;
     await reportProgress(session.applicationId, {
-      status: mapping.unanswered.length > 0 ? 'NEEDS_INPUT' : 'AWAITING_REVIEW',
-      fieldsDetected: refreshed.filter((field) => field.visible).length,
-      fieldsFilled: filled,
-      filesUploaded: uploaded,
-      unanswered: mapping.unanswered,
-      reviewFields: remaining.reviewFields.slice(0, 30),
-      validationErrors: validationErrors.map((text) => text.trim()).filter(Boolean).slice(0, 10),
-      pageUrl: page.url(),
-      pageTitle: await page.title().catch(() => ''),
+      status: unanswered.length > 0 ? 'NEEDS_INPUT' : 'AWAITING_REVIEW',
+      fieldsDetected: summary.fieldsDetected,
+      fieldsFilled: summary.filled,
+      filesUploaded: summary.uploaded,
+      unanswered,
+      reviewFields: summary.remaining.reviewFields.slice(0, 30),
+      validationErrors: summary.validationErrors,
+      pageUrl: summary.pageUrl,
+      pageTitle: summary.pageTitle,
       message:
-        mapping.unanswered.length > 0
+        unanswered.length > 0
           ? 'Form filled. Some required questions need your input in the visible browser.'
           : 'Application form filled — please review before submitting.',
     });

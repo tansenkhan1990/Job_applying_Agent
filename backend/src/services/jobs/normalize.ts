@@ -40,6 +40,22 @@ export function canonicalizeUrl(rawUrl: string): string {
   }
 }
 
+/**
+ * Only absolute http(s) URLs may be opened by the browser runner. Anything else (file:,
+ * javascript:, data:, malformed input) is discarded rather than trusted.
+ */
+export function safeHttpUrl(rawUrl: string | null | undefined): string {
+  if (!rawUrl) return '';
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    if (url.username || url.password) return '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
 export function jobFingerprint(employer: string, title: string, location: string): string {
   const normalized = [employer, title, location]
     .map((part) => normalizeForMatch(part).replace(/\b(gmbh|ag|se|inc|ltd|llc|the)\b/g, '').trim())
@@ -245,6 +261,7 @@ export function normalizeListing(
     description,
     descriptionHtml: input.descriptionHtml,
     canonicalUrl: canonicalizeUrl(input.url),
+    applicationUrl: safeHttpUrl(input.applicationUrl) || canonicalizeUrl(input.url),
     employer: normalizeWhitespace(input.employer) || 'Unknown employer',
     title: normalizeWhitespace(input.title) || 'Untitled role',
     location: normalizeWhitespace(input.location),

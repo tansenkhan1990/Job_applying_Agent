@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { ApplicationModel } from '../src/models/Application.js';
+import { JobModel } from '../src/models/Job.js';
 import { CandidateProfileModel } from '../src/models/CandidateProfile.js';
 import { mockAdapter } from '../src/services/jobs/adapters/mock.js';
 import { updateSettings } from '../src/services/settingsService.js';
@@ -72,6 +73,12 @@ describe('posting-age eligibility and supervised assistant', () => {
     const stored = await ApplicationModel.findById(applicationId);
     expect(stored?.ageEligibility).toBe('Eligible');
     expect(stored?.postedAt?.toISOString().slice(0, 10)).toBe(job.postedAt?.toISOString().slice(0, 10));
+    expect(stored?.eligibleAfter).toBeInstanceOf(Date);
+    expect(stored?.ageReason).toMatch(/calendar months/);
+    expect(stored?.preparationStartedAt).toBeInstanceOf(Date);
+    const storedJob = await JobModel.findById(job._id);
+    expect(storedJob?.ageEligibility).toBe('Eligible');
+    expect(storedJob?.ageCheckAt).toBeInstanceOf(Date);
     expect(stored?.jobDescriptionSnapshot.length).toBeGreaterThan(20);
     expect(stored?.languageSnapshot.languageDecision).toBe('Eligible');
     expect(stored?.workflow?.status).toBe('READY_TO_APPLY');
@@ -268,5 +275,12 @@ describe('posting-age eligibility and supervised assistant', () => {
       .set(runnerHeaders);
     expect(letter.status).toBe(200);
     expect(letter.headers['content-type']).toContain('application/pdf');
+
+    // The metadata must name the exact PDF the runner uploads, not a different source file.
+    const detail = await request(app).get(`/api/applications/${applicationId}`);
+    expect(detail.body.selectedCoverLetterFilename).toMatch(/-cover-letter\.pdf$/);
+    expect(String(letter.headers['content-disposition'])).toContain(
+      detail.body.selectedCoverLetterFilename,
+    );
   });
 });
