@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Secrets and personal application data
+.env
+.env.*
+!.env.example
+documents/**/*.pdf
+documents/**/*.docx
+
+# Generated artifacts
+generated/
+tmp/

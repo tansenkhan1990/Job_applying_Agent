@@ -1,0 +1,46 @@
+{
+  "name": "job-agent-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "esbuild src/index.ts src/worker.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outdir=dist",
+    "start": "node dist/index.js",
+    "start:worker": "node dist/worker.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "cors": "2.8.6",
+    "docx": "9.14.0",
+    "dotenv": "18.0.9",
+    "express": "5.3.0",
+    "express-rate-limit": "8.7.1",
+    "helmet": "8.3.0",
+    "mammoth": "1.13.0",
+    "mongoose": "8.24.7",
+    "pdf-parse": "2.4.5",
+    "pdfkit": "0.20.2",
+    "pino": "10.4.0",
+    "pino-http": "11.0.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/cors": "2.8.19",
+    "@types/express": "5.0.6",
+    "@types/node": "22.19.3",
+    "@types/pdfkit": "0.17.5",
+    "@types/supertest": "6.0.3",
+    "esbuild": "0.27.2",
+    "mongodb-memory-server": "11.3.0",
+    "supertest": "7.3.1",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}
