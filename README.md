@@ -55,6 +55,8 @@ Implemented and verified on this machine:
 | Remotive integration | ✅ live: 10 raw listings in a 20-job run |
 | Mock source for offline testing | ✅ 8 fictional listings |
 | Normalization, dedupe, German-requirement detection | ✅ automated tests |
+| Three-day freshness window for discovery (configurable 1–90 days) | ✅ automated tests |
+| Permanent applied-job registry; never re-applies to a stored application | ✅ automated tests |
 | Hybrid matching with explanations and mandatory-requirement review | ✅ automated tests |
 | Tailored cover letters with grounding checks | ✅ AI + template fallback |
 | Application preparation, review, approval, submission guards | ✅ integration tests |
@@ -63,7 +65,7 @@ Implemented and verified on this machine:
 | Real automatic ATS submission | ❌ intentionally not claimed; manual channel only |
 | OCR of scanned PDFs | ❌ detected and flagged, not performed |
 
-All 63 backend tests pass, and an end-to-end API run covered ingestion → extraction →
+All 67 backend tests pass, and an end-to-end API run covered ingestion → extraction →
 approval → mock submission → downloads → live discovery. Automated tests never contact
 real employers and never call OpenRouter.
 
@@ -229,6 +231,9 @@ Behaviour:
 Adapters implement a common interface (`searchJobs`, optional `getJobDetails`/`verifyJob`).
 Discovery:
 
+- **only stores vacancies posted within the freshness window — three days by default**
+  (Settings → Freshness window, 1–90 days). Listings whose source provides no publication
+  date are kept and flagged `posted_date_unknown` rather than silently assumed fresh;
 - normalizes title, employer, location, work arrangement, language requirement, seniority;
 - filters internships, unpaid roles, stale postings, out-of-scope locations and excluded
   keywords;
@@ -245,9 +250,10 @@ test. Do not add scraping that violates a site's terms.
 
 ## Daily workflow
 
-1. **Discover** — bounded search in enabled sources. Each run is recorded with per-source
-   counts and errors; only one run may execute at a time. The per-source split respects
-   the overall `maxJobsPerRun` budget.
+1. **Discover** — bounded search in enabled sources, limited to vacancies posted in the
+   last three days by default. Each run is recorded with per-source counts and errors; only
+   one run may execute at a time. The per-source split respects the overall `maxJobsPerRun`
+   budget.
 
    Seeded profile skills are only search hints. Running **Extract from CV** replaces them
    with skills actually evidenced by that CV, so match scores cannot be inflated by
@@ -278,7 +284,10 @@ The backend—not the frontend—enforces all of these:
 - Any letter edit, answer edit or regeneration increments the version and clears approval.
 - CV content-hash mismatch rejection (document replaced after preparation/approval).
 - Cover-letter hash mismatch rejection.
-- Duplicate protection by job and by normalized employer/title.
+- Duplicate protection by job and by normalized employer/title, with no expiry: a vacancy
+  that was applied to is never applied to again, even after months or when the employer
+  reposts the same role under a new listing. Each submitted application stores `appliedAt`,
+  employer, title and URL, so the registry survives listing removal.
 - Daily submission cap.
 - Fresh availability check; unavailable vacancies block submission.
 - Required unanswered screening questions block approval.
@@ -332,10 +341,9 @@ For a custom backend during development, set `VITE_PROXY_TARGET`.
 npm run dev          # tsx watch
 npm run build        # esbuild -> dist/
 npm run start        # node dist/index.js
-# Bare-metal backend needs: MONGODB_URI=mongodb://127.0.0.1:27017/job_agent \
-#   DOCUMENTS_PATH=../documents npm start
+# Bare-metal backend needs: MONGODB_URI=mongodb://127.0.0.1:27017/job_agent \    #   DOCUMENTS_PATH=../documents npm start
 npm run typecheck
-npm test             # 63 tests, in-memory MongoDB, external APIs mocked
+npm test             # 67 tests, in-memory MongoDB, external APIs mocked
 
 # Frontend (from frontend/)
 npm run dev
@@ -398,7 +406,9 @@ MongoDB collections (Mongoose):
 - **CoverLetter** — immutable versions per job/profile/application with grounding result
   and content hash.
 - **Application** — state machine history, selected documents and hashes, questions,
-  approval record, submission evidence, idempotency and duplicate keys.
+  approval record, submission evidence, `appliedAt`, idempotency and duplicate keys. This
+  is the durable applied-jobs registry: submitted applications are never deleted and block
+  re-application forever.
 - **SearchRun** — criteria snapshot, per-source counts/errors, duration, trigger.
 - **AppSetting** — one validated document with non-secret settings plus scheduler lock.
 
@@ -418,6 +428,7 @@ Coverage:
 - PDF/DOCX parsing, empty-PDF OCR detection, corrupt/unsupported files
 - scanning, hashing, changed/missing documents, manual mapping precedence
 - URL canonicalization, fingerprints, normalization, German requirement detection
+- freshness window (three-day default), unknown publication dates flagged
 - internships/unpaid/expired/location/title filters
 - dedupe by source id, canonical URL and batch duplicates
 - mock discovery, search-run persistence, overlap rejection, repeat runs
@@ -429,6 +440,8 @@ Coverage:
 - HTTP integration: validation errors, health, profile seeding
 - approval enforcement, stale approval, CV mutation, duplicate submission/title,
   manual-action flow, CSV export
+- applied-job registry: a role applied to 100 days ago is still blocked when reposted,
+  and the jobs list exposes the stored application for each vacancy
 
 `mongodb-memory-server` downloads a MongoDB binary on first use. Tests mock all external
 HTTP calls and never submit a real application.
@@ -521,7 +534,7 @@ authentication because this is a single-user local application; do not change th
 │   │   ├── app.ts           Express app
 │   │   ├── index.ts         API entry
 │   │   └── worker.ts        scheduler entry
-│   ├── tests/               63 Vitest tests
+│   ├── tests/               67 Vitest tests
 │   ├── Dockerfile
 │   └── package.json
 ├── frontend/

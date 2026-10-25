@@ -204,7 +204,8 @@ export function defaultSettings(): AppSettings {
       seniority: ['mid', 'senior'],
       minRelevanceScore: 80,
       maxJobsPerRun: 40,
-      freshnessDays: 30,
+      // Only vacancies posted within the last three days are stored by discovery.
+      freshnessDays: 3,
       excludeInternships: true,
       excludeUnpaid: true,
       excludeKeywords: ['commission only', 'unpaid', 'volunteer'],

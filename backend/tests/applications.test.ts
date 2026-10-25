@@ -6,6 +6,7 @@ import { ApplicationModel } from '../src/models/Application.js';
 import { CandidateProfileModel } from '../src/models/CandidateProfile.js';
 import { DocumentModel } from '../src/models/Document.js';
 import { runDiscovery } from '../src/services/jobs/discovery.js';
+import { duplicateKeyFor } from '../src/services/applications/service.js';
 import { ensureDefaultProfiles } from '../src/services/profilesService.js';
 import { seedApprovedProfiles, seedPendingProfile } from './helpers.js';
 import { jobFingerprint } from '../src/services/jobs/normalize.js';
@@ -148,6 +149,14 @@ describe('application workflow', () => {
     expect(submitted.body.submission.confirmed).toBe(true);
     expect(submitted.body.submission.simulated).toBe(true);
     expect(submitted.body.submission.attempts).toBe(1);
+    // The applied job is stored permanently with the date it was submitted.
+    expect(submitted.body.appliedAt).toBeTruthy();
+
+    const listed = await request(app).get('/api/jobs?limit=50');
+    const listedJob = listed.body.items.find(
+      (item: { id: string }) => item.id === String(fullStackJob._id),
+    );
+    expect(listedJob.application.status).toBe('SUBMITTED');
 
     const again = await request(app)
       .post(`/api/applications/${applicationId}/submit`)
@@ -298,6 +307,64 @@ describe('application workflow', () => {
       .post('/api/applications/prepare')
       .send({ jobId: String(duplicateJob._id), profileId: String(fullStackProfile._id) });
     expect(blocked.status).toBe(409);
-    expect(blocked.body.error.message).toMatch(/duplicate/i);
+    expect(blocked.body.error.message).toMatch(/already applied to/i);
+  });
+
+  it('never re-applies to a vacancy that was applied to months ago', async () => {
+    const { fullStackJob, fullStackProfile } = await seedMockJobs();
+    const appliedAt = new Date(Date.now() - 100 * 86_400_000);
+
+    await ApplicationModel.create({
+      job: fullStackJob._id,
+      profile: fullStackProfile._id,
+      employer: fullStackJob.employer,
+      jobTitle: fullStackJob.title,
+      jobUrl: fullStackJob.url,
+      applicationUrl: fullStackJob.applicationUrl,
+      source: fullStackJob.source,
+      status: 'SUBMITTED',
+      appliedAt,
+      duplicateKey: duplicateKeyFor(fullStackJob.employer, fullStackJob.title),
+      idempotencyKey: 'historical-application',
+      submission: {
+        attemptedAt: appliedAt,
+        adapter: 'manual_user_confirmation',
+        confirmed: true,
+        confirmationId: 'old-confirmation',
+      },
+    });
+
+    // The employer reposts the same role under a new listing id.
+    const reposted = await JobModel.create({
+      source: 'arbeitnow',
+      sourceJobId: 'reposted-after-months',
+      sourceLabel: 'Arbeitnow',
+      url: 'https://example.com/reposted-listing',
+      canonicalUrl: 'https://example.com/reposted-listing',
+      applicationUrl: 'https://example.com/reposted-listing',
+      employer: fullStackJob.employer,
+      title: fullStackJob.title,
+      location: fullStackJob.location,
+      country: 'Germany',
+      remote: false,
+      workArrangement: 'hybrid',
+      employmentType: 'full-time',
+      salary: '',
+      tags: [],
+      description: 'The same role, posted again months later.',
+      postedAt: new Date(),
+      expiresAt: null,
+      status: 'active',
+      fingerprint: jobFingerprint(fullStackJob.employer, fullStackJob.title, fullStackJob.location),
+      discoveredAt: new Date(),
+      lastVerifiedAt: new Date(),
+    });
+
+    const blocked = await request(app)
+      .post('/api/applications/prepare')
+      .send({ jobId: String(reposted._id), profileId: String(fullStackProfile._id) });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toMatch(/already applied to/i);
+    expect(blocked.body.error.details.appliedAt).toBeTruthy();
   });
 });

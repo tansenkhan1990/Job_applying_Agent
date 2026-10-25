@@ -45,7 +45,7 @@ Content-Type: application/json
 
 {
   "ai": { "model": "google/gemini-2.5-flash" },
-  "search": { "minRelevanceScore": 80, "maxJobsPerRun": 40 },
+  "search": { "minRelevanceScore": 80, "maxJobsPerRun": 40, "freshnessDays": 3 },
   "application": { "mode": "approval_required", "maxDailyApplications": 5 }
 }
 ```
@@ -104,6 +104,19 @@ There is no endpoint that accepts a filesystem path. Files are read only from
 | POST | `/jobs/:id/match` | Hybrid evaluation. Body: `{ "profileKinds": ["full_stack"] }` |
 | POST | `/jobs/:id/verify` | Best-effort availability check with evidence |
 
+Discovery stores only vacancies posted inside `search.freshnessDays` (default `3`). A
+listing without a publication date is kept and flagged `posted_date_unknown`. Each item
+returned by `GET /jobs` also carries the stored application for that vacancy:
+
+```json
+{
+  "id": "…",
+  "title": "Senior Full Stack Engineer",
+  "postedAt": "2026-10-23T08:00:00.000Z",
+  "application": { "id": "…", "status": "SUBMITTED", "appliedAt": "2026-10-24T10:12:00.000Z" }
+}
+```
+
 Discovery returns a run summary:
 
 ```json
@@ -160,7 +173,8 @@ The server refuses submission unless all of the following hold:
 5. Every required screening question is answered.
 6. The confirmed-answers hash matches the approval record.
 7. No other submitted application exists for the job, or for the same
-   employer + normalized title.
+   employer + normalized title. There is no time window: an application submitted months
+   ago still blocks the role, even if the employer reposted it under a new listing.
 8. The daily limit has not been reached.
 9. The vacancy is still active after a fresh availability check.
 

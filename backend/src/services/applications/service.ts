@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Types } from 'mongoose';
 import { ApplicationModel } from '../../models/Application.js';
 import { JobModel } from '../../models/Job.js';
 import { JobMatchModel } from '../../models/JobMatch.js';
@@ -25,6 +26,32 @@ const SUBMITTED_STATUSES: ApplicationStatus[] = ['SUBMITTED', 'SUBMITTING'];
 
 export function duplicateKeyFor(employer: string, title: string): string {
   return sha256(`${normalizeForMatch(employer)}|${normalizeForMatch(title)}`);
+}
+
+/**
+ * The application record is the durable applied-jobs registry: it keeps employer, job title,
+ * URL and `appliedAt` even when the listing disappears or the employer reposts the role
+ * under a new source/id. A vacancy that was applied to is therefore never applied to again,
+ * regardless of how much time has passed.
+ */
+async function findPriorApplication(input: {
+  jobId: Types.ObjectId;
+  duplicateKey: string;
+  excludeApplicationId?: Types.ObjectId;
+}): Promise<ApplicationDoc | null> {
+  return ApplicationModel.findOne({
+    ...(input.excludeApplicationId ? { _id: { $ne: input.excludeApplicationId } } : {}),
+    $and: [
+      { $or: [{ job: input.jobId }, { duplicateKey: input.duplicateKey }] },
+      { $or: [{ status: { $in: SUBMITTED_STATUSES } }, { appliedAt: { $ne: null } }] },
+    ],
+  });
+}
+
+function priorApplicationMessage(prior: ApplicationDoc): string {
+  const appliedOn = prior.appliedAt ?? prior.submission?.attemptedAt ?? prior.createdAt;
+  const date = appliedOn ? appliedOn.toISOString().slice(0, 10) : 'an earlier date';
+  return `This vacancy was already applied to on ${date} (${prior.status}). Previously applied vacancies are never submitted again, even months later or when the role is reposted under a different listing.`;
 }
 
 function answersHash(questions: Array<{ questionId: string; answer: string }>): string {
@@ -128,27 +155,14 @@ export async function prepareApplication(input: {
     return { application: existingActive, created: false, warnings: ['A prepared application already exists.'] };
   }
 
-  const inProgress = await ApplicationModel.findOne({
-    job: job._id,
-    status: { $in: SUBMITTED_STATUSES },
-  });
-  if (inProgress) {
-    throw conflict('An application for this vacancy has already been submitted or is in progress.', {
-      applicationId: String(inProgress._id),
-      status: inProgress.status,
-    });
-  }
-
   const duplicateKey = duplicateKeyFor(job.employer, job.title);
-  const duplicateTitle = await ApplicationModel.findOne({
-    duplicateKey,
-    status: 'SUBMITTED',
-  });
-  if (duplicateTitle) {
-    throw conflict(
-      'A submitted application already exists for the same employer and job title (duplicate detection).',
-      { applicationId: String(duplicateTitle._id) },
-    );
+  const priorApplication = await findPriorApplication({ jobId: job._id, duplicateKey });
+  if (priorApplication) {
+    throw conflict(priorApplicationMessage(priorApplication), {
+      applicationId: String(priorApplication._id),
+      status: priorApplication.status,
+      appliedAt: priorApplication.appliedAt ?? priorApplication.submission?.attemptedAt ?? null,
+    });
   }
 
   const [match] = await matchJob(String(job._id), { profileIds: [String(profile._id)] });
@@ -388,25 +402,16 @@ export async function submitApplication(id: string) {
 
   const { job } = await assertApprovalValid(application);
 
-  const duplicate = await ApplicationModel.findOne({
-    job: application.job,
-    _id: { $ne: application._id },
-    status: 'SUBMITTED',
+  const duplicate = await findPriorApplication({
+    jobId: application.job,
+    duplicateKey: application.duplicateKey,
+    excludeApplicationId: application._id,
   });
   if (duplicate) {
-    throw conflict('Another application for this vacancy has already been submitted.', {
+    throw conflict(priorApplicationMessage(duplicate), {
       applicationId: String(duplicate._id),
-    });
-  }
-
-  const duplicateTitle = await ApplicationModel.findOne({
-    duplicateKey: application.duplicateKey,
-    _id: { $ne: application._id },
-    status: 'SUBMITTED',
-  });
-  if (duplicateTitle) {
-    throw conflict('A submitted application exists for the same employer and title.', {
-      applicationId: String(duplicateTitle._id),
+      status: duplicate.status,
+      appliedAt: duplicate.appliedAt ?? duplicate.submission?.attemptedAt ?? null,
     });
   }
 
@@ -478,6 +483,7 @@ export async function submitApplication(id: string) {
 
   if (outcome.outcome === 'submitted') {
     applyTransition(application, 'SUBMITTED', outcome.message);
+    application.set('appliedAt', new Date());
     application.set('submission', {
       ...(application.submission ?? {}),
       attemptedAt: new Date(),
@@ -547,6 +553,7 @@ export async function confirmManualSubmission(id: string, input: { note?: string
   }
 
   applyTransition(application, 'SUBMITTED', 'User confirmed completing the employer form manually');
+  application.set('appliedAt', new Date());
   application.set('submission', {
     ...(application.submission ?? {}),
     confirmed: true,

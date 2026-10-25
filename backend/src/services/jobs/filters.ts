@@ -122,6 +122,10 @@ export function applyDeterministicFilters(job: JobListing, criteria: JobSearchCr
   if (job.postedAt) {
     const ageDays = (Date.now() - job.postedAt.getTime()) / 86_400_000;
     if (ageDays > criteria.freshnessDays) reasons.push('older_than_freshness_window');
+  } else {
+    // Sources do not always expose a publication date. Keep the listing but mark it, so
+    // freshness is never silently assumed.
+    flags.push('posted_date_unknown');
   }
   if (job.expiresAt && job.expiresAt.getTime() < Date.now()) reasons.push('expired');
 

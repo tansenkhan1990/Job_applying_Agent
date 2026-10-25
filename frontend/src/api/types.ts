@@ -250,6 +250,11 @@ export interface Job {
   languageRequirement: 'english_ok' | 'german_required' | 'german_preferred' | 'unknown';
   seniority: 'junior' | 'mid' | 'senior' | 'lead' | 'unknown';
   bestMatch?: JobMatch | null;
+  application?: {
+    id: string;
+    status: ApplicationStatus;
+    appliedAt: string | null;
+  } | null;
   mergedSources: string[];
 }
 
@@ -327,6 +332,7 @@ export interface Application {
     attempts: number;
     lastAttemptAt: string | null;
   };
+  appliedAt: string | null;
   statusHistory: Array<{ from?: string; to: ApplicationStatus; at: string; reason?: string }>;
   notes: string;
   createdAt: string;

@@ -51,6 +51,36 @@ describe('mock job source', () => {
   });
 });
 
+describe('freshness window', () => {
+  it('defaults to the last three days', async () => {
+    const settings = await getSettings();
+    expect(settings.search.freshnessDays).toBe(3);
+  });
+
+  it('rejects vacancies posted before the window', async () => {
+    const [recent] = await mockAdapter.searchJobs(baseCriteria);
+    expect(applyDeterministicFilters(recent, { ...baseCriteria, freshnessDays: 3 }).included).toBe(
+      true,
+    );
+
+    const stale = {
+      ...recent,
+      sourceJobId: 'synthetic-stale',
+      postedAt: new Date(Date.now() - 5 * 86_400_000),
+    };
+    const outcome = applyDeterministicFilters(stale, { ...baseCriteria, freshnessDays: 3 });
+    expect(outcome.included).toBe(false);
+    expect(outcome.reasons).toContain('older_than_freshness_window');
+  });
+
+  it('keeps listings without a publication date but flags them for review', async () => {
+    const [recent] = await mockAdapter.searchJobs(baseCriteria);
+    const outcome = applyDeterministicFilters({ ...recent, postedAt: null }, baseCriteria);
+    expect(outcome.included).toBe(true);
+    expect(outcome.flags).toContain('posted_date_unknown');
+  });
+});
+
 describe('job upsert and deduplication', () => {
   it('creates a listing once and updates it on repeat', async () => {
     const [listing] = await mockAdapter.searchJobs(baseCriteria);

@@ -185,6 +185,21 @@ export function JobsPage() {
                     {job.status !== 'active' ? (
                       <Badge tone={statusTone(job.status)}>{job.status}</Badge>
                     ) : null}
+                    {job.application ? (
+                      <Badge
+                        tone={
+                          job.application.status === 'SUBMITTED'
+                            ? 'success'
+                            : job.application.status === 'FAILED'
+                              ? 'danger'
+                              : 'warning'
+                        }
+                      >
+                        {job.application.status === 'SUBMITTED'
+                          ? `Applied${job.application.appliedAt ? ` ${formatDate(job.application.appliedAt)}` : ''}`
+                          : titleCase(job.application.status)}
+                      </Badge>
+                    ) : null}
                     <span className="text-[11px] text-slate-500">
                       {job.postedAt ? `Posted ${formatDate(job.postedAt)}` : `Discovered ${formatDate(job.discoveredAt)}`}
                     </span>

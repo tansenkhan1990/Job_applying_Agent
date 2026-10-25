@@ -364,13 +364,16 @@ export function SettingsPage() {
                   onChange={(event) => updateSearch({ maxJobsPerRun: toNumber(event.target.value, 40) })}
                 />
               </Field>
-              <Field label="Freshness window (days)">
+              <Field
+                label="Freshness window (days)"
+                hint="Only vacancies posted within this window are stored by discovery. 3 keeps each run to the last three days."
+              >
                 <Input
                   type="number"
                   min={1}
-                  max={180}
+                  max={90}
                   value={draft.search.freshnessDays}
-                  onChange={(event) => updateSearch({ freshnessDays: toNumber(event.target.value, 30) })}
+                  onChange={(event) => updateSearch({ freshnessDays: toNumber(event.target.value, 3) })}
                 />
               </Field>
             </div>

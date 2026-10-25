@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { JobModel } from '../models/Job.js';
 import { JobMatchModel } from '../models/JobMatch.js';
+import { ApplicationModel } from '../models/Application.js';
 import { objectIdSchema, jobSearchSchema, matchRequestSchema, profileKindSchema } from '../schemas.js';
 import { paginationSchema, parsePagination, paginated } from '../utils/pagination.js';
 import { runDiscovery, getSourceConfigStatuses } from '../services/jobs/discovery.js';
@@ -72,13 +73,35 @@ jobsRouter.get('/', async (req, res) => {
     if (!current || (match.score ?? 0) > (current.score ?? 0)) bestByJob.set(key, match);
   }
 
+  // Show whether a stored vacancy already has an application, so an applied job is never
+  // re-prepared by mistake.
+  const applications = await ApplicationModel.find({ job: { $in: jobIds } })
+    .select('job status appliedAt submission.attemptedAt')
+    .sort({ createdAt: -1 });
+  const applicationByJob = new Map<string, (typeof applications)[number]>();
+  for (const application of applications) {
+    const key = String(application.job);
+    const current = applicationByJob.get(key);
+    if (!current || (current.status !== 'SUBMITTED' && application.status === 'SUBMITTED')) {
+      applicationByJob.set(key, application);
+    }
+  }
+
   const items = jobs.map((job) => {
     const data = serialize<Record<string, unknown>>(job);
     delete data.description;
+    const application = applicationByJob.get(String(job._id));
     return {
       ...data,
       descriptionPreview: (job.description ?? '').slice(0, 320),
       bestMatch: bestByJob.get(String(job._id)) ? serialize(bestByJob.get(String(job._id))) : null,
+      application: application
+        ? {
+            id: String(application._id),
+            status: application.status,
+            appliedAt: application.appliedAt ?? application.submission?.attemptedAt ?? null,
+          }
+        : null,
     };
   });
 

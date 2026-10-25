@@ -82,6 +82,10 @@ const applicationSchema = new Schema(
       lastAttemptAt: { type: Date, default: null },
     },
 
+    // Set once a submission is confirmed. Applications are kept forever so a vacancy can
+    // never be applied to twice, even months later or after the employer reposts it.
+    appliedAt: { type: Date, default: null, index: true },
+
     idempotencyKey: { type: String, required: true, unique: true },
     duplicateOf: { type: Schema.Types.ObjectId, ref: 'Application', default: null },
     duplicateKey: { type: String, default: '', index: true },
@@ -93,6 +97,7 @@ const applicationSchema = new Schema(
 
 applicationSchema.index({ status: 1, createdAt: -1 });
 applicationSchema.index({ job: 1, profile: 1 });
+applicationSchema.index({ duplicateKey: 1, appliedAt: -1 });
 
 applicationSchema.set('toJSON', {
   transform: (_doc, ret: Record<string, unknown>) => {

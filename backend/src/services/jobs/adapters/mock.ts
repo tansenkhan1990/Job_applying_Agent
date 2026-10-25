@@ -70,7 +70,7 @@ We work remotely across the EU.`,
     employmentType: 'full-time',
     salary: '€80,000 – €100,000',
     tags: ['Kubernetes', 'AWS', 'Terraform', 'CI/CD'],
-    postedAt: daysAgo(4),
+    postedAt: daysAgo(2),
     expiresAt: null,
     description: `Own our internal developer platform. You will operate Kubernetes clusters on AWS, write Terraform modules, improve GitHub Actions pipelines, and build observability with Prometheus and Grafana.
 Requirements: production Kubernetes, AWS, Linux, infrastructure as code, CI/CD. On-call rotation is shared. English working language; basic German helpful but not required.`,
@@ -90,7 +90,7 @@ Requirements: production Kubernetes, AWS, Linux, infrastructure as code, CI/CD. 
     employmentType: 'internship',
     salary: '',
     tags: ['React'],
-    postedAt: daysAgo(3),
+    postedAt: daysAgo(1),
     expiresAt: null,
     description:
       'Unpaid internship for students. Learn React and CSS in a small team. This position is a Praktikum and receives no salary.',
@@ -110,7 +110,7 @@ Requirements: production Kubernetes, AWS, Linux, infrastructure as code, CI/CD. 
     employmentType: 'contract',
     salary: 'Commission only',
     tags: ['Sales'],
-    postedAt: daysAgo(5),
+    postedAt: daysAgo(2),
     expiresAt: null,
     description:
       'Commission only sales role. Cold-call leads and close deals. No technical requirements, no base salary.',
@@ -130,7 +130,7 @@ Requirements: production Kubernetes, AWS, Linux, infrastructure as code, CI/CD. 
     employmentType: 'full-time',
     salary: '',
     tags: ['Java', 'Spring Boot', 'PostgreSQL'],
-    postedAt: daysAgo(6),
+    postedAt: daysAgo(1),
     expiresAt: null,
     description: `Entwickle Backend-Services für unsere Versicherungsplattform mit Java und Spring Boot.
 Sehr gute Deutschkenntnisse (C1) sind zwingend erforderlich für die Kommunikation mit Fachabteilungen und Kunden. Englisch ist von Vorteil.
