@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { createApp } from '../src/app.js';
 import { JobModel } from '../src/models/Job.js';
 import { SearchRunModel } from '../src/models/SearchRun.js';
 import { mockAdapter } from '../src/services/jobs/adapters/mock.js';
@@ -6,6 +8,8 @@ import { applyDeterministicFilters } from '../src/services/jobs/filters.js';
 import { runDiscovery } from '../src/services/jobs/discovery.js';
 import { upsertJobListings } from '../src/services/jobs/dedupe.js';
 import { getSettings } from '../src/services/settingsService.js';
+import { defaultSettings } from '../src/config/defaults.js';
+import { AppSettingModel } from '../src/models/AppSetting.js';
 import { seedApprovedProfiles } from './helpers.js';
 import type { JobSearchCriteria } from '../src/services/jobs/types.js';
 
@@ -21,7 +25,9 @@ const baseCriteria: JobSearchCriteria = {
   excludeKeywords: ['commission only'],
   excludeInternships: true,
   excludeUnpaid: true,
+  excludeGermanRequired: true,
   freshnessDays: 30,
+  minAgeMonths: 3,
   maxJobs: 20,
 };
 
@@ -41,23 +47,45 @@ describe('mock job source', () => {
     const ids = included.map((listing) => listing.sourceJobId).sort();
     expect(ids).toEqual([
       'mock-ai-engineer-rag',
-      'mock-backend-german',
       'mock-fullstack-senior',
       'mock-platform-engineer',
     ]);
 
-    const german = included.find((listing) => listing.sourceJobId === 'mock-backend-german');
+    const german = listings.find((listing) => listing.sourceJobId === 'mock-backend-german');
     expect(german?.languageRequirement).toBe('german_required');
+    expect(applyDeterministicFilters(german!, baseCriteria).reasons).toContain('language_excluded');
+  });
+
+  it('keeps German-optional and explicitly not-required listings', async () => {
+    const listings = await mockAdapter.searchJobs(baseCriteria);
+    const ai = listings.find((listing) => listing.sourceJobId === 'mock-ai-engineer-rag')!;
+    const platform = listings.find((listing) => listing.sourceJobId === 'mock-platform-engineer')!;
+    expect(ai.languageRequirement).toBe('german_not_required');
+    expect(platform.languageRequirement).toBe('german_not_required');
+    expect(applyDeterministicFilters(ai, baseCriteria).included).toBe(true);
+    expect(applyDeterministicFilters(platform, baseCriteria).included).toBe(true);
+  });
+
+  it('keeps German-mandatory listings when the filter is disabled', async () => {
+    const listings = await mockAdapter.searchJobs(baseCriteria);
+    const german = listings.find((listing) => listing.sourceJobId === 'mock-backend-german')!;
+    const outcome = applyDeterministicFilters(german, {
+      ...baseCriteria,
+      excludeGermanRequired: false,
+    });
+    expect(outcome.included).toBe(true);
+    expect(outcome.flags).toContain('german_required');
   });
 });
 
 describe('freshness window', () => {
-  it('defaults to the last three days', async () => {
+  it('defaults to a three-calendar-month application minimum and one-year retention', async () => {
     const settings = await getSettings();
-    expect(settings.search.freshnessDays).toBe(3);
+    expect(settings.search.minAgeMonths).toBe(3);
+    expect(settings.search.freshnessDays).toBe(365);
   });
 
-  it('rejects vacancies posted before the window', async () => {
+  it('rejects vacancies older than the retention window', async () => {
     const [recent] = await mockAdapter.searchJobs(baseCriteria);
     expect(applyDeterministicFilters(recent, { ...baseCriteria, freshnessDays: 3 }).included).toBe(
       true,
@@ -70,7 +98,7 @@ describe('freshness window', () => {
     };
     const outcome = applyDeterministicFilters(stale, { ...baseCriteria, freshnessDays: 3 });
     expect(outcome.included).toBe(false);
-    expect(outcome.reasons).toContain('older_than_freshness_window');
+    expect(outcome.reasons).toContain('older_than_max_age');
   });
 
   it('keeps listings without a publication date but flags them for review', async () => {
@@ -132,26 +160,67 @@ describe('job upsert and deduplication', () => {
   });
 });
 
+describe('jobs API language filter', () => {
+  it('hides German-mandatory listings when requested and returns all jobs otherwise', async () => {
+    const listings = await mockAdapter.searchJobs(baseCriteria);
+    const german = listings.find((listing) => listing.sourceJobId === 'mock-backend-german')!;
+    const english = listings.find((listing) => listing.sourceJobId === 'mock-fullstack-senior')!;
+    await upsertJobListings([german, english]);
+
+    const app = createApp();
+    const filtered = await request(app).get(
+      '/api/jobs?limit=50&status=active&excludeGermanRequired=true',
+    );
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.items).toHaveLength(1);
+    expect(filtered.body.items[0].title).toBe('Senior Full Stack Engineer');
+
+    const all = await request(app).get('/api/jobs?limit=50&status=active');
+    expect(all.status).toBe(200);
+    expect(all.body.items.map((item: { title: string }) => item.title)).toContain(
+      'Senior Backend Engineer',
+    );
+  });
+});
+
+describe('settings migration', () => {
+  it('defaults the German filter on for settings stored before the option existed', async () => {
+    const legacy = structuredClone(defaultSettings()) as {
+      search: { excludeGermanRequired?: boolean };
+    };
+    delete legacy.search.excludeGermanRequired;
+    await AppSettingModel.create({ key: 'global', value: legacy });
+
+    const settings = await getSettings();
+    expect(settings.search.excludeGermanRequired).toBe(true);
+  });
+});
+
 describe('discovery runs', () => {
   it('stores filtered mock jobs and a search run record', async () => {
     await seedApprovedProfiles();
     const result = await runDiscovery({ trigger: 'manual', overrides: { sources: ['mock'] } });
     expect(result.status).toBe('completed');
-    expect(result.created).toBe(4);
-    expect(result.filteredOut).toBe(4);
+    expect(result.created).toBe(3);
+    expect(result.filteredOut).toBe(5);
 
     const jobs = await JobModel.find({ source: 'mock' });
     expect(jobs.map((job) => job.sourceJobId).sort()).toEqual([
       'mock-ai-engineer-rag',
-      'mock-backend-german',
       'mock-fullstack-senior',
       'mock-platform-engineer',
     ]);
+    expect(jobs.every((job) => job.languageRequirement !== 'german_required')).toBe(true);
 
     const run = await SearchRunModel.findById(result.runId);
     expect(run?.status).toBe('completed');
     expect(run?.sources[0]?.source).toBe('mock');
     expect(run?.duplicates).toBeGreaterThanOrEqual(0);
+  });
+
+  it('defaults to keeping only non-German-required vacancies', async () => {
+    const settings = await getSettings();
+    expect(settings.search.excludeGermanRequired).toBe(true);
   });
 
   it('blocks a second concurrent search run', async () => {
@@ -169,8 +238,8 @@ describe('discovery runs', () => {
     // Mock is the only configured source in tests; running it twice must still persist.
     const first = await runDiscovery({ trigger: 'manual', overrides: { sources: ['mock'] } });
     const second = await runDiscovery({ trigger: 'manual', overrides: { sources: ['mock'] } });
-    expect(first.created).toBe(4);
+    expect(first.created).toBe(3);
     expect(second.created).toBe(0);
-    expect(second.updated).toBe(4);
+    expect(second.updated).toBe(3);
   });
 });

@@ -1,5 +1,6 @@
 import type { Seniority } from '../../config/defaults.js';
 import { normalizeForMatch } from '../../utils/text.js';
+import { assessJobAge } from './age.js';
 import { isEuRemoteLocation } from './normalize.js';
 import type { JobListing, JobSearchCriteria } from './types.js';
 
@@ -85,14 +86,6 @@ export function titleRelevance(title: string, targetTitles: string[]): number {
   return best;
 }
 
-export function isLanguageAllowed(requirement: JobListing['languageRequirement'], languages: string[]): boolean {
-  // Deliberately conservative: never exclude a vacancy just because German is mentioned.
-  // German-mandatory roles stay visible and are flagged during matching.
-  if (requirement === 'german_required') return true;
-  const hasEnglish = languages.some((language) => /english/i.test(language));
-  return hasEnglish || languages.length === 0;
-}
-
 export function isLocationAllowed(job: JobListing, criteria: JobSearchCriteria): boolean {
   const locationText = normalizeForMatch(`${job.location} ${job.title}`);
   if (job.workArrangement === 'remote') {
@@ -119,15 +112,24 @@ export function applyDeterministicFilters(job: JobListing, criteria: JobSearchCr
   const flags: string[] = [];
   const text = normalizeForMatch(`${job.title} ${job.location} ${job.description.slice(0, 6000)}`);
 
+  const age = assessJobAge({
+    postedAt: job.postedAt,
+    expiresAt: job.expiresAt,
+    months: criteria.minAgeMonths,
+  });
   if (job.postedAt) {
     const ageDays = (Date.now() - job.postedAt.getTime()) / 86_400_000;
-    if (ageDays > criteria.freshnessDays) reasons.push('older_than_freshness_window');
+    if (ageDays > criteria.freshnessDays) reasons.push('older_than_max_age');
   } else {
     // Sources do not always expose a publication date. Keep the listing but mark it, so
-    // freshness is never silently assumed.
+    // age eligibility is never silently assumed.
     flags.push('posted_date_unknown');
   }
-  if (job.expiresAt && job.expiresAt.getTime() < Date.now()) reasons.push('expired');
+  // Too-recent jobs are still stored so the dashboard can report them. The application
+  // queue and assistant enforce the age threshold.
+  if (age.ageEligibility === 'Too Recent') flags.push('too_recent');
+  if (age.ageEligibility === 'Unknown') flags.push('age_unknown');
+  if (age.ageEligibility === 'Expired') reasons.push('expired');
 
   if (criteria.workArrangements.length > 0 && job.workArrangement !== 'unknown') {
     if (!criteria.workArrangements.includes(job.workArrangement)) reasons.push('work_arrangement_mismatch');
@@ -150,7 +152,18 @@ export function applyDeterministicFilters(job: JobListing, criteria: JobSearchCr
     if (titleRelevance(job.title, criteria.targetTitles) === 0) reasons.push('title_not_relevant');
   }
 
-  if (job.languageRequirement === 'german_required') flags.push('german_required');
+  // Mentioning German is never a reason to exclude a vacancy. Only postings classified as
+  // Excluded (explicitly mandatory German) are dropped, and only when the user asked for
+  // that. Optional, not-required and unclassified postings always stay.
+  const languageExcluded =
+    job.languageDecision === 'Excluded' || job.languageRequirement === 'german_required';
+  if (languageExcluded) {
+    if (criteria.excludeGermanRequired) reasons.push('language_excluded');
+    else flags.push('german_required');
+  }
+  if (job.languageDecision === 'Needs Review') flags.push('language_needs_review');
+  if (job.germanOptional === true) flags.push('german_optional');
+  if (job.languageRequirement === 'german_not_required') flags.push('german_not_required');
   if (job.country === '' || job.workArrangement === 'unknown') flags.push('location_needs_review');
   if (criteria.includeKeywords.length > 0) {
     const hasInclude = criteria.includeKeywords.some((keyword) => {

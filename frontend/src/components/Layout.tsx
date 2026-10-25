@@ -7,6 +7,8 @@ import { cn } from './ui';
 const NAV = [
   { to: '/', label: 'Overview', icon: 'grid' },
   { to: '/jobs', label: 'Jobs', icon: 'briefcase' },
+  { to: '/queue', label: 'Apply queue', icon: 'play' },
+  { to: '/assistant', label: 'Assistant', icon: 'play' },
   { to: '/profiles', label: 'Profiles', icon: 'users' },
   { to: '/documents', label: 'Documents', icon: 'file' },
   { to: '/applications', label: 'Applications', icon: 'check' },
@@ -60,6 +62,12 @@ function Icon({ name }: { name: (typeof NAV)[number]['icon'] }) {
         <svg {...common}>
           <path d="M8 3.5h8v3H8zM6 5.5H4.5v15h15v-15H18" />
           <path d="m8 13 2.5 2.5L16 10" />
+        </svg>
+      );
+    case 'play':
+      return (
+        <svg {...common}>
+          <path d="M8 5.2 19 12 8 18.8Z" />
         </svg>
       );
     case 'cog':

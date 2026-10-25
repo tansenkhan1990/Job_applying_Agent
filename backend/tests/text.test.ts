@@ -25,7 +25,9 @@ const criteria: JobSearchCriteria = {
   excludeKeywords: ['unpaid'],
   excludeInternships: true,
   excludeUnpaid: true,
+  excludeGermanRequired: true,
   freshnessDays: 30,
+  minAgeMonths: 3,
   maxJobs: 40,
 };
 
@@ -100,6 +102,28 @@ describe('job normalization', () => {
     expect(detectLanguageRequirement('Join our international team.')).toBe('unknown');
   });
 
+  it('does not mistake a negated German requirement for a mandatory one', () => {
+    expect(detectLanguageRequirement('German is not required for this role.')).toBe(
+      'german_not_required',
+    );
+    expect(
+      detectLanguageRequirement('English working language. Basic German helpful but not required.'),
+    ).toBe('german_not_required');
+    expect(detectLanguageRequirement('Deutschkenntnisse sind nicht erforderlich.')).toBe(
+      'german_not_required',
+    );
+    expect(
+      detectLanguageRequirement('Keine Deutschkenntnisse erforderlich. Englisch ist unsere Arbeitssprache.'),
+    ).toBe('german_not_required');
+  });
+
+  it('detects unqualified German requirements and ignores unrelated negations', () => {
+    expect(detectLanguageRequirement('Deutschkenntnisse erforderlich.')).toBe('german_required');
+    expect(
+      detectLanguageRequirement('German language skills are mandatory, English is not required.'),
+    ).toBe('german_required');
+  });
+
   it('extracts years-of-experience requirements', () => {
     expect(extractYearsRequirement('You have 5+ years of experience with TypeScript')).toBe(5);
     expect(extractYearsRequirement('At least 3 years of professional experience')).toBe(3);
@@ -114,14 +138,40 @@ describe('job normalization', () => {
 });
 
 describe('deterministic discovery filters', () => {
-  it('keeps a German-mandatory role instead of excluding it for mentioning German', () => {
+  it('excludes German-mandatory roles while the German filter is enabled', () => {
     const job = listing({
       description: 'Senior Full Stack Developer. Deutschkenntnisse C1 sind zwingend erforderlich.',
     });
     expect(job.languageRequirement).toBe('german_required');
     const outcome = applyDeterministicFilters(job, criteria);
+    expect(outcome.included).toBe(false);
+    expect(outcome.reasons).toContain('language_excluded');
+  });
+
+  it('keeps German-mandatory roles when the filter is disabled', () => {
+    const job = listing({
+      description: 'Senior Full Stack Developer. Deutschkenntnisse C1 sind zwingend erforderlich.',
+    });
+    const outcome = applyDeterministicFilters(job, {
+      ...criteria,
+      excludeGermanRequired: false,
+    });
     expect(outcome.included).toBe(true);
     expect(outcome.flags).toContain('german_required');
+  });
+
+  it('keeps roles where German is optional or explicitly not required', () => {
+    const optional = listing({
+      description: 'Senior Full Stack Developer. German is a plus, English is our working language.',
+    });
+    const notRequired = listing({
+      sourceJobId: '2',
+      description: 'Senior Full Stack Developer. German is not required.',
+    });
+    expect(optional.languageRequirement).toBe('german_preferred');
+    expect(notRequired.languageRequirement).toBe('german_not_required');
+    expect(applyDeterministicFilters(optional, criteria).included).toBe(true);
+    expect(applyDeterministicFilters(notRequired, criteria).included).toBe(true);
   });
 
   it('excludes internships, unpaid roles, stale jobs and wrong locations', () => {
@@ -142,7 +192,7 @@ describe('deterministic discovery filters', () => {
         listing({ postedAt: new Date(Date.now() - 90 * 86_400_000) }),
         criteria,
       ).reasons,
-    ).toContain('older_than_freshness_window');
+    ).toContain('older_than_max_age');
     expect(
       applyDeterministicFilters(
         listing({ title: 'AI Engineer', location: 'Remote – USA only', remote: true, country: 'Other' }),

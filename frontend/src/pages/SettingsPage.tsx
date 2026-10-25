@@ -365,15 +365,31 @@ export function SettingsPage() {
                 />
               </Field>
               <Field
-                label="Freshness window (days)"
-                hint="Only vacancies posted within this window are stored by discovery. 3 keeps each run to the last three days."
+                label="Minimum application age (calendar months)"
+                hint="Jobs younger than this are stored but marked Too Recent and kept out of the application queue. Default: 3."
               >
                 <Input
                   type="number"
-                  min={1}
-                  max={90}
+                  min={0}
+                  max={60}
+                  value={draft.search.minAgeMonths}
+                  onChange={(event) =>
+                    updateSearch({ minAgeMonths: toNumber(event.target.value, 3) })
+                  }
+                />
+              </Field>
+              <Field
+                label="Retention window (days)"
+                hint="Maximum posting age kept in the database (default 365). This is not the application threshold."
+              >
+                <Input
+                  type="number"
+                  min={30}
+                  max={3650}
                   value={draft.search.freshnessDays}
-                  onChange={(event) => updateSearch({ freshnessDays: toNumber(event.target.value, 3) })}
+                  onChange={(event) =>
+                    updateSearch({ freshnessDays: toNumber(event.target.value, 365) })
+                  }
                 />
               </Field>
             </div>
@@ -466,11 +482,19 @@ export function SettingsPage() {
                 onChange={(value) => updateSearch({ excludeUnpaid: value })}
                 label="Exclude unpaid and commission-only roles"
               />
+              <Toggle
+                checked={draft.search.excludeGermanRequired}
+                onChange={(value) => updateSearch({ excludeGermanRequired: value })}
+                label="Only keep jobs where German is not required or optional"
+                hint="Excludes postings that mandate German. English-friendly, German-optional and unclassified postings stay. Turn off to store every vacancy."
+              />
             </div>
 
             <WarningNote>
-              German-mandatory roles are kept and flagged during matching. A vacancy is never excluded merely
-              because it mentions German; the actual requirement is assessed against your verified languages.
+              A vacancy is never excluded merely because it mentions German. The posting is filtered only when its
+              text explicitly requires German; postings that say German is optional or not required are kept. Language
+              detection is heuristic, so review the badge on each job. The application queue additionally requires a
+              verified original posting date at least three calendar months old.
             </WarningNote>
           </div>
         </Card>

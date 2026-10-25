@@ -21,7 +21,9 @@ const criteria: JobSearchCriteria = {
   excludeKeywords: [],
   excludeInternships: true,
   excludeUnpaid: true,
+  excludeGermanRequired: true,
   freshnessDays: 30,
+  minAgeMonths: 3,
   maxJobs: 20,
 };
 

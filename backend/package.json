@@ -11,6 +11,7 @@
     "build": "esbuild src/index.ts src/worker.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outdir=dist",
     "start": "node dist/index.js",
     "start:worker": "node dist/worker.js",
+    "runner": "tsx src/runner/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -38,6 +39,7 @@
     "@types/supertest": "6.0.3",
     "esbuild": "0.27.2",
     "mongodb-memory-server": "11.3.0",
+    "playwright": "1.55.0",
     "supertest": "7.3.1",
     "tsx": "4.23.15",
     "typescript": "5.9.3",

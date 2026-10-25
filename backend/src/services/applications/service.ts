@@ -15,6 +15,7 @@ import { extractScreeningQuestions, unansweredRequired } from './questions.js';
 import { resolveSubmissionAdapter } from './submission.js';
 import { applyTransition } from './stateMachine.js';
 import { verifyJobAvailability } from '../jobs/verify.js';
+import { assessJobAge } from '../jobs/age.js';
 import { AppError, conflict, notFound, badRequest } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 import { sha256 } from '../../utils/hash.js';
@@ -37,12 +38,20 @@ export function duplicateKeyFor(employer: string, title: string): string {
 async function findPriorApplication(input: {
   jobId: Types.ObjectId;
   duplicateKey: string;
+  canonicalUrl?: string;
   excludeApplicationId?: Types.ObjectId;
 }): Promise<ApplicationDoc | null> {
+  // The same canonical URL can be stored as separate job documents if a source changes
+  // its external id. Match those too, not only the referenced job and employer/title.
+  const relatedJobs = input.canonicalUrl
+    ? await JobModel.find({ canonicalUrl: input.canonicalUrl }).select('_id').lean()
+    : [];
+  const jobIds = [input.jobId, ...relatedJobs.map((related) => related._id)];
+
   return ApplicationModel.findOne({
     ...(input.excludeApplicationId ? { _id: { $ne: input.excludeApplicationId } } : {}),
     $and: [
-      { $or: [{ job: input.jobId }, { duplicateKey: input.duplicateKey }] },
+      { $or: [{ job: { $in: jobIds } }, { duplicateKey: input.duplicateKey }] },
       { $or: [{ status: { $in: SUBMITTED_STATUSES } }, { appliedAt: { $ne: null } }] },
     ],
   });
@@ -156,7 +165,11 @@ export async function prepareApplication(input: {
   }
 
   const duplicateKey = duplicateKeyFor(job.employer, job.title);
-  const priorApplication = await findPriorApplication({ jobId: job._id, duplicateKey });
+  const priorApplication = await findPriorApplication({
+    jobId: job._id,
+    duplicateKey,
+    canonicalUrl: job.canonicalUrl,
+  });
   if (priorApplication) {
     throw conflict(priorApplicationMessage(priorApplication), {
       applicationId: String(priorApplication._id),
@@ -185,6 +198,26 @@ export async function prepareApplication(input: {
     );
   }
 
+  const age = assessJobAge({
+    postedAt: job.postedAt,
+    postedLocalDate: job.postedLocalDate,
+    expiresAt: job.expiresAt,
+    status: job.status,
+  });
+  const initialWorkflowStatus =
+    age.ageEligibility === 'Too Recent'
+      ? 'TOO_RECENT'
+      : age.ageEligibility === 'Unknown'
+        ? 'NEEDS_REVIEW'
+        : age.ageEligibility === 'Expired'
+          ? 'EXPIRED'
+          : job.languageDecision === 'Excluded' || job.languageDecision === 'Needs Review'
+            ? 'LANGUAGE_REVIEW'
+            : 'READY_TO_APPLY';
+  const coverLetterDocument = profile.coverLetterDocument
+    ? await DocumentModel.findById(profile.coverLetterDocument)
+    : null;
+
   const application = await ApplicationModel.create({
     job: job._id,
     profile: profile._id,
@@ -194,6 +227,30 @@ export async function prepareApplication(input: {
     jobUrl: job.url,
     applicationUrl: job.applicationUrl || job.url,
     source: job.source,
+    jobLocation: job.location,
+    workArrangement: job.workArrangement,
+    postedAt: job.postedAt,
+    ageEligibility: age.ageEligibility,
+    eligibleAfter: age.eligibleAfter,
+    ageReason: age.ageReason,
+    discoveredAt: job.discoveredAt,
+    jobDescriptionSnapshot: (job.description ?? '').slice(0, 8_000),
+    languageSnapshot: {
+      jobLanguage: job.jobLanguage,
+      englishRequired: job.englishRequired,
+      germanRequired: job.germanRequired,
+      germanOptional: job.germanOptional,
+      languageDecision: job.languageDecision,
+      languageConfidence: job.languageConfidence,
+      languageEvidence: job.languageEvidence,
+      languageReason: job.languageReason,
+    },
+    matchScore: match.score,
+    matchExplanation: match.explanation,
+    profileKind: profile.kind,
+    selectedCvFilename: cv.filename,
+    selectedCoverLetterFilename: coverLetterDocument?.filename ?? '',
+    preparationStartedAt: new Date(),
     status: 'READY_FOR_REVIEW',
     version: 1,
     selectedCvDocument: cv._id,
@@ -204,6 +261,23 @@ export async function prepareApplication(input: {
     screeningQuestions: questions,
     idempotencyKey: `${String(job._id)}:${String(profile._id)}:${randomUUID()}`,
     duplicateKey,
+    workflow: {
+      status: initialWorkflowStatus,
+      updatedAt: new Date(),
+      events: [
+        {
+          at: new Date(),
+          type: 'prepared',
+          from: 'DISCOVERED',
+          to: initialWorkflowStatus,
+          source: 'system',
+          message:
+            initialWorkflowStatus === 'READY_TO_APPLY'
+              ? 'Application prepared; language and posting age are eligible.'
+              : `Application prepared with workflow ${initialWorkflowStatus}: ${age.ageReason} ${job.languageReason}`,
+        },
+      ],
+    },
     statusHistory: [
       { from: '', to: 'MATCHED', at: new Date(), reason: 'Application prepared from a validated match' },
       { from: 'MATCHED', to: 'READY_FOR_REVIEW', at: new Date(), reason: 'Cover letter and screening questions prepared' },
@@ -318,6 +392,8 @@ export async function approveApplication(
   };
   application.set('approval', approval);
   applyTransition(application, 'APPROVED', 'Explicit local user approval recorded');
+  const lastHistory = application.statusHistory[application.statusHistory.length - 1];
+  if (lastHistory) lastHistory.source = 'user';
   await application.save();
 
   logger.info(
@@ -553,6 +629,8 @@ export async function confirmManualSubmission(id: string, input: { note?: string
   }
 
   applyTransition(application, 'SUBMITTED', 'User confirmed completing the employer form manually');
+  const lastManualHistory = application.statusHistory[application.statusHistory.length - 1];
+  if (lastManualHistory) lastManualHistory.source = 'user';
   application.set('appliedAt', new Date());
   application.set('submission', {
     ...(application.submission ?? {}),
@@ -681,8 +759,12 @@ export async function answerQuestion(
 
 export async function listApplications(query: {
   status?: string;
+  workflowStatus?: string;
+  ageEligibility?: string;
   profileId?: string;
   employer?: string;
+  jobTitle?: string;
+  languageDecision?: string;
   from?: string;
   to?: string;
   page: number;
@@ -691,13 +773,18 @@ export async function listApplications(query: {
 }) {
   const filter: Record<string, unknown> = {};
   if (query.status) filter.status = query.status;
+  if (query.workflowStatus) filter['workflow.status'] = query.workflowStatus;
+  if (query.ageEligibility) filter.ageEligibility = query.ageEligibility;
   if (query.profileId) filter.profile = query.profileId;
   if (query.employer) filter.employer = { $regex: query.employer, $options: 'i' };
+  if (query.jobTitle) filter.jobTitle = { $regex: query.jobTitle, $options: 'i' };
+  if (query.languageDecision) filter['languageSnapshot.languageDecision'] = query.languageDecision;
   if (query.from || query.to) {
+    // Filter on the original posting date, not on when the record was created.
     const range: Record<string, Date> = {};
     if (query.from) range.$gte = new Date(query.from);
     if (query.to) range.$lte = new Date(query.to);
-    filter.createdAt = range;
+    filter.postedAt = range;
   }
 
   const [items, total] = await Promise.all([
@@ -710,6 +797,29 @@ export async function listApplications(query: {
     ApplicationModel.countDocuments(filter),
   ]);
 
+  return { items, total };
+}
+
+export async function listApplicationQueue(query: { page: number; limit: number; skip: number }) {
+  const filter = {
+    ageEligibility: 'Eligible',
+    status: { $nin: ['SUBMITTED', 'WITHDRAWN', 'SUBMITTING'] },
+    'workflow.status': {
+      $in: ['READY_TO_APPLY', 'ASSISTANT_RUNNING', 'AWAITING_REVIEW', 'NEEDS_INPUT'],
+    },
+  };
+  const [items, total] = await Promise.all([
+    ApplicationModel.find(filter)
+      .sort({ 'workflow.startRequestedAt': -1, createdAt: -1 })
+      .skip(query.skip)
+      .limit(query.limit)
+      .populate('job', 'title employer location workArrangement postedAt ageEligibility ageReason languageDecision languageRequirement source url applicationUrl')
+      .populate('profile', 'kind label name status cvDocument coverLetterDocument')
+      .populate('match', 'score explanation')
+      .populate('selectedCvDocument', 'filename relativePath')
+      .populate('selectedCoverLetterDocument', 'filename relativePath'),
+    ApplicationModel.countDocuments(filter),
+  ]);
   return { items, total };
 }
 
@@ -727,6 +837,15 @@ export async function dashboardSummary() {
     ]);
 
   const relevant = await JobMatchModel.countDocuments({ score: { $gte: 80 } });
+  const [ageGroups, eligibleNotApplied, preparedAwaitingReview, assistantActive] = await Promise.all([
+    JobModel.aggregate([{ $group: { _id: '$ageEligibility', count: { $sum: 1 } } }]),
+    JobModel.countDocuments({ ageEligibility: 'Eligible', status: 'active' }),
+    ApplicationModel.countDocuments({
+      'workflow.status': { $in: ['READY_TO_APPLY', 'AWAITING_REVIEW', 'NEEDS_INPUT'] },
+    }),
+    ApplicationModel.countDocuments({ 'workflow.status': 'ASSISTANT_RUNNING' }),
+  ]);
+  const ageCounts = Object.fromEntries(ageGroups.map((group) => [group._id ?? 'Unknown', group.count]));
   const recentRuns = await (await import('../../models/SearchRun.js')).SearchRunModel.find({})
     .sort({ startedAt: -1 })
     .limit(5)
@@ -737,7 +856,23 @@ export async function dashboardSummary() {
   ]);
 
   return {
-    totals: { totalJobs, activeJobs, relevant, applications, pendingApproval, submitted, failed, manual },
+    totals: {
+      totalJobs,
+      activeJobs,
+      relevant,
+      applications,
+      pendingApproval,
+      submitted,
+      failed,
+      manual,
+      eligibleByAge: ageCounts.Eligible ?? 0,
+      tooRecent: ageCounts['Too Recent'] ?? 0,
+      unknownPostingDate: ageCounts.Unknown ?? 0,
+      expiredByAge: ageCounts.Expired ?? 0,
+      eligibleNotApplied,
+      preparedAwaitingReview,
+      assistantActive,
+    },
     applicationsByStatus: Object.fromEntries(byStatus.map((item) => [item._id, item.count])),
     topMatches: runs,
     recentRuns,
@@ -755,6 +890,11 @@ export function applicationsToCsv(
     jobUrl: string;
     createdAt: Date;
     updatedAt: Date;
+    postedAt?: Date | null;
+    ageEligibility?: string;
+    appliedAt?: Date | null;
+    preparationStartedAt?: Date | null;
+    workflow?: { status?: string };
     submission?: { confirmed?: boolean; simulated?: boolean; adapter?: string; confirmationId?: string; message?: string };
   }>,
 ): string {
@@ -763,8 +903,13 @@ export function applicationsToCsv(
     'employer',
     'job_title',
     'status',
+    'workflow_status',
+    'age_eligibility',
+    'posted_at',
     'source',
     'job_url',
+    'preparation_started_at',
+    'applied_at',
     'created_at',
     'updated_at',
     'submission_confirmed',
@@ -783,8 +928,13 @@ export function applicationsToCsv(
       item.employer,
       item.jobTitle,
       item.status,
+      item.workflow?.status ?? '',
+      item.ageEligibility ?? '',
+      item.postedAt?.toISOString?.() ?? '',
       item.source,
       item.jobUrl,
+      item.preparationStartedAt?.toISOString?.() ?? '',
+      item.appliedAt?.toISOString?.() ?? '',
       item.createdAt?.toISOString?.() ?? '',
       item.updatedAt?.toISOString?.() ?? '',
       item.submission?.confirmed ? 'yes' : 'no',

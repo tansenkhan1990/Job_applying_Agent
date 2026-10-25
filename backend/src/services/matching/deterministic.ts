@@ -82,7 +82,7 @@ function candidateGerman(profile: CandidateProfileRecord): 'yes' | 'no' | 'unkno
   if (!profile.languages || profile.languages.length === 0) return 'unknown';
   const german = profile.languages.find((item) => /german|deutsch/i.test(item.language));
   if (!german) return 'no';
-  if (/unknown/i.test(german.level) && profile.languages.length === 0) return 'unknown';
+  if (!german.level || /unknown|unspecified/i.test(german.level)) return 'unknown';
   return 'yes';
 }
 
@@ -203,6 +203,8 @@ export function assessDeterministically(
       });
       concerns.push('German is preferred but not evidenced; this is not treated as a hard blocker.');
     }
+  } else if (languageRequirement === 'german_not_required') {
+    languageAssessment = { requiredLanguage: '', mandatory: false, candidateMeets: 'yes' };
   } else if (languageRequirement === 'english_ok') {
     languageAssessment = { requiredLanguage: 'English', mandatory: false, candidateMeets: 'unknown' };
   }
@@ -311,11 +313,13 @@ export function assessDeterministically(
     `Rule-based assessment: title match ${titleScore}/30, skill overlap ${skillsScore}/40 (${matchedSkills.length} of ${profileSkills.length} profile skills found), seniority ${seniorityScore}/15, location ${locationScore}/15.`,
     languageRequirement === 'german_required'
       ? `The posting mandates German; candidate evidence: ${german}.`
-      : languageRequirement === 'german_preferred'
-        ? 'German is preferred, not mandatory.'
-        : languageRequirement === 'english_ok'
-          ? 'English appears sufficient.'
-          : 'The language requirement could not be determined.',
+      : languageRequirement === 'german_not_required'
+        ? 'The posting explicitly states that German is not required.'
+        : languageRequirement === 'german_preferred'
+          ? 'German is preferred, not mandatory.'
+          : languageRequirement === 'english_ok'
+            ? 'English appears sufficient.'
+            : 'The language requirement could not be determined.',
   ];
   if (mandatoryUnknown.length > 0) {
     explanationParts.push(

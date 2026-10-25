@@ -28,6 +28,24 @@ export const APPLICATION_STATUSES = [
 ] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
+export const WORKFLOW_STATUSES = [
+  'DISCOVERED',
+  'NEEDS_REVIEW',
+  'TOO_RECENT',
+  'EXPIRED',
+  'LANGUAGE_REVIEW',
+  'ELIGIBLE',
+  'READY_TO_APPLY',
+  'ASSISTANT_RUNNING',
+  'AWAITING_REVIEW',
+  'NEEDS_INPUT',
+  'SUBMITTED',
+  'SUBMISSION_FAILED',
+  'SKIPPED',
+  'APPLIED_MANUALLY',
+] as const;
+export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
+
 export interface ProfileSeed {
   kind: ProfileKind;
   name: string;
@@ -158,9 +176,13 @@ export interface SearchCriteria {
   seniority: Seniority[];
   minRelevanceScore: number;
   maxJobsPerRun: number;
+  /** Maximum posting age retained. This is not the application threshold. */
   freshnessDays: number;
+  /** Minimum calendar months between the original posting date and applying. */
+  minAgeMonths: number;
   excludeInternships: boolean;
   excludeUnpaid: boolean;
+  excludeGermanRequired: boolean;
   excludeKeywords: string[];
   includeKeywords: string[];
   sources: Record<string, boolean>;
@@ -204,10 +226,14 @@ export function defaultSettings(): AppSettings {
       seniority: ['mid', 'senior'],
       minRelevanceScore: 80,
       maxJobsPerRun: 40,
-      // Only vacancies posted within the last three days are stored by discovery.
-      freshnessDays: 3,
+      // Discovery retains up to a year of postings; the application queue applies the
+      // stricter minimum-age rule below (three calendar months by default).
+      freshnessDays: 365,
+      minAgeMonths: 3,
       excludeInternships: true,
       excludeUnpaid: true,
+      // Keep only vacancies where German is not required or is merely optional.
+      excludeGermanRequired: true,
       excludeKeywords: ['commission only', 'unpaid', 'volunteer'],
       includeKeywords: [],
       sources: {

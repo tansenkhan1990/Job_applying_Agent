@@ -11,6 +11,7 @@ import {
   EmptyState,
   ErrorNote,
   Input,
+  LanguageDecisionBadge,
   PageHeader,
   Pagination,
   ScoreBadge,
@@ -26,6 +27,14 @@ export function JobsPage() {
   const [search, setSearch] = useState('');
   const [profileKind, setProfileKind] = useState<ProfileKind | ''>('');
   const [minScore, setMinScore] = useState('');
+  const [languageFilter, setLanguageFilter] = useState<
+    'non_required' | 'eligible' | 'optional' | 'review' | 'all'
+  >('non_required');
+  const [ageFilter, setAgeFilter] = useState<
+    '' | 'Eligible' | 'Too Recent' | 'Unknown' | 'Expired'
+  >('');
+  const [postedFrom, setPostedFrom] = useState('');
+  const [postedTo, setPostedTo] = useState('');
   const [page, setPage] = useState(1);
   const [matchingId, setMatchingId] = useState<string | null>(null);
 
@@ -33,6 +42,13 @@ export function JobsPage() {
   if (search.trim()) params.set('q', search.trim());
   if (profileKind) params.set('profileKind', profileKind);
   if (minScore) params.set('minScore', minScore);
+  if (languageFilter === 'non_required') params.set('excludeGermanRequired', 'true');
+  else if (languageFilter === 'eligible') params.set('languageDecision', 'Eligible');
+  else if (languageFilter === 'optional') params.set('germanOptional', 'true');
+  else if (languageFilter === 'review') params.set('languageDecision', 'Needs Review');
+  if (ageFilter) params.set('ageEligibility', ageFilter);
+  if (postedFrom) params.set('postedAfter', postedFrom);
+  if (postedTo) params.set('postedBefore', postedTo);
 
   const jobs = useQuery<Paginated<Job>>({
     queryKey: ['jobs', params.toString()],
@@ -70,7 +86,7 @@ export function JobsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Job listings"
-        description="Normalized vacancies from enabled sources. Scores explain relevance to a specific career profile; they are not hiring probabilities."
+        description="Normalized vacancies from enabled sources. By default only jobs where German is not required or optional are shown. Scores explain relevance to a specific career profile; they are not hiring probabilities."
         actions={
           <Button variant="primary" onClick={() => runSearch.mutate()} loading={runSearch.isPending}>
             Run discovery
@@ -80,7 +96,7 @@ export function JobsPage() {
 
       <Card padded={false}>
         <form
-          className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_13rem_10rem_auto]"
+          className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_11rem_10rem_9rem_9rem_auto]"
           onSubmit={(event) => {
             event.preventDefault();
             setPage(1);
@@ -119,6 +135,62 @@ export function JobsPage() {
             <option value="60">Score ≥ 60</option>
             <option value="40">Score ≥ 40</option>
           </Select>
+          <Select
+            value={languageFilter}
+            onChange={(event) => {
+              setLanguageFilter(
+                event.target.value as 'non_required' | 'eligible' | 'optional' | 'review' | 'all',
+              );
+              setPage(1);
+            }}
+            aria-label="German language requirement"
+          >
+            <option value="non_required">Exclude German-mandatory</option>
+            <option value="eligible">Language eligible</option>
+            <option value="optional">German optional</option>
+            <option value="review">Needs language review</option>
+            <option value="all">All jobs</option>
+          </Select>
+          <Select
+            value={ageFilter}
+            onChange={(event) => {
+              setAgeFilter(
+                event.target.value as '' | 'Eligible' | 'Too Recent' | 'Unknown' | 'Expired',
+              );
+              setPage(1);
+            }}
+            aria-label="Posting age eligibility"
+          >
+            <option value="">Any age</option>
+            <option value="Eligible">Age eligible</option>
+            <option value="Too Recent">Too recent</option>
+            <option value="Unknown">Date unknown</option>
+            <option value="Expired">Expired</option>
+          </Select>
+          <label className="flex flex-col gap-1 text-[11px] text-slate-400">
+            Posted from
+            <Input
+              type="date"
+              value={postedFrom}
+              onChange={(event) => {
+                setPostedFrom(event.target.value);
+                setPage(1);
+              }}
+              aria-label="Filter by earliest posting date"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-slate-400">
+            Posted to
+            <Input
+              type="date"
+              value={postedTo}
+              onChange={(event) => {
+                setPostedTo(event.target.value);
+                setPage(1);
+              }}
+              aria-label="Filter by latest posting date"
+            />
+          </label>
           <div className="flex gap-2">
             <Button type="submit">Filter</Button>
             <Button
@@ -128,6 +200,10 @@ export function JobsPage() {
                 setSearch('');
                 setProfileKind('');
                 setMinScore('');
+                setLanguageFilter('non_required');
+                setAgeFilter('');
+                setPostedFrom('');
+                setPostedTo('');
                 setPage(1);
               }}
             >
@@ -177,11 +253,24 @@ export function JobsPage() {
                     <Badge tone="info">{job.sourceLabel || job.source}</Badge>
                     <Badge tone="neutral">{titleCase(job.workArrangement)}</Badge>
                     {job.seniority !== 'unknown' ? <Badge tone="neutral">{titleCase(job.seniority)}</Badge> : null}
-                    {job.languageRequirement === 'german_required' ? (
-                      <Badge tone="warning">German mandatory</Badge>
-                    ) : job.languageRequirement === 'german_preferred' ? (
-                      <Badge tone="neutral">German preferred</Badge>
-                    ) : null}
+                    <LanguageDecisionBadge
+                      decision={job.languageDecision}
+                      confidence={job.languageConfidence}
+                    />
+                    {job.germanOptional ? <Badge tone="info">German optional</Badge> : null}
+                    <Badge
+                      tone={
+                        job.ageEligibility === 'Eligible'
+                          ? 'success'
+                          : job.ageEligibility === 'Too Recent'
+                            ? 'warning'
+                            : job.ageEligibility === 'Expired'
+                              ? 'danger'
+                              : 'neutral'
+                      }
+                    >
+                      {job.ageEligibility}
+                    </Badge>
                     {job.status !== 'active' ? (
                       <Badge tone={statusTone(job.status)}>{job.status}</Badge>
                     ) : null}
@@ -207,6 +296,9 @@ export function JobsPage() {
                       <Badge tone="neutral">Posted date unknown</Badge>
                     ) : null}
                   </div>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                    {job.ageReason}
+                  </p>
                   {job.descriptionPreview ? (
                     <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-400">
                       {job.descriptionPreview}

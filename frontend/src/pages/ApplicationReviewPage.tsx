@@ -193,6 +193,19 @@ export function ApplicationReviewPage() {
     onError: handleError,
   });
 
+  const startAssistant = useMutation({
+    mutationFn: () =>
+      api<Application>(`/applications/${id}/assistant/start`, {
+        method: 'POST',
+        body: { confirmedLanguage: true },
+      }),
+    onSuccess: () => {
+      toast.success('Assistant session queued. It will open in the visible browser runner.');
+      invalidate();
+    },
+    onError: handleError,
+  });
+
   const cancel = useMutation({
     mutationFn: () =>
       api<Application>(`/applications/${id}/cancel`, {
@@ -261,6 +274,76 @@ export function ApplicationReviewPage() {
       />
 
       {actionError ? <ErrorNote message={actionError.message} details={actionError.details} /> : null}
+
+      <Card
+        title="Human-supervised application assistant"
+        subtitle="Opens the employer form in a visible browser, fills verified fields, and pauses. You submit."
+        action={
+          <Link to={`/assistant/${app.id}`}>
+            <Button size="sm" variant="secondary">
+              Live monitor
+            </Button>
+          </Link>
+        }
+      >
+        <div className="space-y-3 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge
+              tone={
+                app.ageEligibility === 'Eligible'
+                  ? 'success'
+                  : app.ageEligibility === 'Too Recent'
+                    ? 'warning'
+                    : app.ageEligibility === 'Expired'
+                      ? 'danger'
+                      : 'neutral'
+              }
+            >
+              {app.ageEligibility ?? 'Unknown'} posting age
+            </Badge>
+            <Badge
+              tone={
+                app.languageSnapshot?.languageDecision === 'Eligible'
+                  ? 'success'
+                  : app.languageSnapshot?.languageDecision === 'Excluded'
+                    ? 'danger'
+                    : 'warning'
+              }
+            >
+              {app.languageSnapshot?.languageDecision ?? 'Needs Review'} language
+            </Badge>
+            {app.postedAt ? (
+              <Badge tone="neutral">Posted {formatDateTime(app.postedAt)}</Badge>
+            ) : null}
+          </div>
+          <p className="leading-relaxed text-slate-400">
+            {app.ageReason || 'Posting age has not been checked.'}
+          </p>
+          <p className="leading-relaxed text-slate-500">
+            The queue re-checks the original posting date, language, availability and duplicates immediately
+            before starting. The assistant never clicks Submit, and the browser stays open for your edits.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={() => startAssistant.mutate()}
+              loading={startAssistant.isPending}
+              disabled={
+                locked ||
+                app.ageEligibility !== 'Eligible' ||
+                app.languageSnapshot?.languageDecision === 'Excluded'
+              }
+            >
+              Start application assistant
+            </Button>
+            {app.languageSnapshot?.languageDecision === 'Needs Review' ? (
+              <span className="text-[11px] text-amber-300">
+                Starting confirms you checked the original listing and English is acceptable.
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </Card>
 
       {prepareOnly ? (
         <WarningNote>

@@ -35,7 +35,7 @@ const jobMatchSchema = new Schema(
     mandatoryUnknown: { type: [String], default: [] },
     languageRequirement: {
       type: String,
-      enum: ['english_ok', 'german_required', 'german_preferred', 'unknown'],
+      enum: ['english_ok', 'german_not_required', 'german_required', 'german_preferred', 'unknown'],
       default: 'unknown',
     },
     languageAssessment: {

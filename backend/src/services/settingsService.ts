@@ -37,9 +37,26 @@ export async function getSettings(): Promise<AppSettings> {
     const revalidated = settingsSchema.safeParse(fallback);
     const value = revalidated.success ? revalidated.data : defaultSettings();
     await AppSettingModel.updateOne({ key: 'global' }, { $set: { value } });
-    return value;
+    return migrateSettings(value);
   }
-  return parsed.data as AppSettings;
+  return migrateSettings(parsed.data as AppSettings);
+}
+
+/**
+ * Older builds used `freshnessDays: 3` as a maximum posting age. That predates the
+ * three-calendar-month application rule and would reject every eligible posting, so it is
+ * migrated to the one-year retention window. Unrelated user settings are untouched.
+ */
+function migrateSettings(value: AppSettings): AppSettings {
+  if (value.search.freshnessDays < 30) {
+    value.search.freshnessDays = 365;
+    if (!value.search.minAgeMonths) value.search.minAgeMonths = 3;
+    void AppSettingModel.updateOne(
+      { key: 'global' },
+      { $set: { 'value.search.freshnessDays': 365, 'value.search.minAgeMonths': value.search.minAgeMonths } },
+    ).catch(() => undefined);
+  }
+  return value;
 }
 
 export async function updateSettings(patch: SettingsPatch): Promise<AppSettings> {

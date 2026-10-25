@@ -45,7 +45,12 @@ Content-Type: application/json
 
 {
   "ai": { "model": "google/gemini-2.5-flash" },
-  "search": { "minRelevanceScore": 80, "maxJobsPerRun": 40, "freshnessDays": 3 },
+  "search": {
+    "minRelevanceScore": 80,
+    "maxJobsPerRun": 40,
+    "freshnessDays": 3,
+    "excludeGermanRequired": true
+  },
   "application": { "mode": "approval_required", "maxDailyApplications": 5 }
 }
 ```
@@ -99,15 +104,36 @@ There is no endpoint that accepts a filesystem path. Files are read only from
 | --- | --- | --- |
 | POST | `/jobs/search` | Run bounded discovery. Body: `{ "sources": ["arbeitnow"], "maxJobs": 20 }` |
 | GET | `/jobs/sources` | Source configuration status |
-| GET | `/jobs` | Paginated list. Query: `q`, `status`, `source`, `profileKind`, `minScore`, `page`, `limit` |
+| GET | `/jobs` | Paginated list. Query: `q`, `status`, `source`, `profileKind`, `minScore`, `excludeGermanRequired`, `languageDecision`, `ageEligibility`, `postedAfter`, `postedBefore`, `page`, `limit` |
 | GET | `/jobs/:id` | Job + all profile matches |
 | POST | `/jobs/:id/match` | Hybrid evaluation. Body: `{ "profileKinds": ["full_stack"] }` |
 | POST | `/jobs/:id/verify` | Best-effort availability check with evidence |
 
+`excludeGermanRequired=true` hides vacancies whose posting explicitly mandates German.
+German-optional (`german_preferred`), explicitly not-required (`german_not_required`) and
+unclassified (`unknown`) postings are kept. Discovery applies the same rule by default via
+`search.excludeGermanRequired`; set it to `false` in Settings to store every vacancy.
+
 Discovery stores only vacancies posted inside `search.freshnessDays` (default `3`). A
 listing without a publication date is kept with `postedAtUnknown: true` (the UI labels it), so
-freshness is never silently assumed. Each item
-returned by `GET /jobs` also carries the stored application for that vacancy:
+freshness is never silently assumed.
+
+### Posting age
+
+Only postings at least **three calendar months** old may enter the application workflow.
+The threshold is computed with calendar-month arithmetic (not 90 days), so a job posted on
+`2026-07-25` is eligible on `2026-10-25`, and month-end dates are clamped consistently
+(`2026-05-31` + 3 months → `2026-08-31`). When a source publishes a wall-clock date without
+a timezone, that calendar day is stored as `postedLocalDate` and used for the threshold instead
+of the UTC day.
+
+Every job exposes `postedAt`, `firstSeenAt`, `lastSeenAt`, `ageEligibility` (`Eligible`,
+`Too Recent`, `Unknown`, `Expired`), `eligibleAfter` and `ageCheckAt`. A missing or
+unverifiable publication date is never substituted with `firstSeenAt`: the job is marked
+`Unknown` and kept in review. `GET /applications/:id/eligibility?verify=true` re-runs the
+full check immediately before the assistant starts and returns every reason.
+
+Each item returned by `GET /jobs` also carries the stored application for that vacancy:
 
 ```json
 {
@@ -150,7 +176,13 @@ requirements, evidence, model and prompt version.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | POST | `/applications/prepare` | Create/reuse a draft. Body: `{ "jobId": "…", "profileId": "…" }` |
-| GET | `/applications` | Paginated tracker. Query: `status`, `employer`, `profileId`, `profileKind` |
+| GET | `/applications` | Paginated tracker. Query: `status`, `workflowStatus`, `ageEligibility`, `employer`, `jobTitle`, `languageDecision`, `profileId`, `profileKind`, `from`/`to` (posting-date range) |
+| GET | `/applications/queue` | Eligible applications in the human-reviewed apply queue |
+| GET | `/applications/:id/eligibility` | Re-check posting age, availability, language, match and duplicates (`?verify=true` re-checks the source) |
+| GET | `/applications/:id/assistant` | Form completion summary, unanswered fields, review fields and errors |
+| POST | `/applications/:id/assistant/start` | Queue the assistant. Refused unless every eligibility check passes |
+| POST | `/applications/:id/assistant/pause\|resume\|stop` | Operator control |
+| POST | `/applications/:id/confirm-outcome` | Record what actually happened in the browser |
 | GET | `/applications/:id` | Full application with job, profile, match and letter |
 | POST | `/applications/:id/approve` | Explicit approval: `{ "confirmed": true, "note": "…" }` |
 | POST | `/applications/:id/submit` | Submit only if approval matches the current version |
@@ -180,7 +212,27 @@ The server refuses submission unless all of the following hold:
 9. The vacancy is still active after a fresh availability check.
 
 Any edit to the letter, answers or document mapping increments the application version
-and clears the approval record.
+and clears the approval record. Submission additionally requires a fresh eligibility check:
+`ageEligibility === "Eligible"`, a verifiable posting date, an active listing, an
+English-language decision of `Eligible` and a matching profile. The assistant is refused
+otherwise.
+
+### Workflow statuses and duplicate prevention
+
+`workflow.status` tracks the human-in-the-loop queue: `DISCOVERED`, `NEEDS_REVIEW`,
+`TOO_RECENT`, `EXPIRED`, `LANGUAGE_REVIEW`, `ELIGIBLE`, `READY_TO_APPLY`,
+`ASSISTANT_RUNNING`, `AWAITING_REVIEW`, `NEEDS_INPUT`, `SUBMITTED`, `SUBMISSION_FAILED`,
+`SKIPPED`, `APPLIED_MANUALLY`. The companion `status` field remains the local
+approval/submission state machine. A form that was filled but not confirmed stays in
+`AWAITING_REVIEW`; only an explicit user confirmation or a reliable submission outcome
+moves it to `SUBMITTED`.
+
+Before a record is created, or the assistant launched, the API looks for an existing
+application by external job id, by normalized canonical URL, and by normalized
+company + title (+ location). Duplicate creation is guarded by an atomic unique
+`idempotencyKey` index plus a unique `(source, sourceJobId)` index on jobs. Records are
+never deleted when a vacancy disappears: an existing record is shown with its status and
+must be reviewed explicitly before an unfinished application can be restarted.
 
 ### Honest submission outcomes
 

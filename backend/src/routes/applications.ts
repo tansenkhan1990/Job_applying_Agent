@@ -3,6 +3,9 @@ import { z } from 'zod';
 import {
   approveApplicationSchema,
   answerSchema,
+  assistantControlSchema,
+  assistantOutcomeSchema,
+  assistantStartSchema,
   coverLetterEditSchema,
   objectIdSchema,
   prepareApplicationSchema,
@@ -22,12 +25,22 @@ import {
   editCoverLetter,
   getApplicationById,
   getApplicationDetail,
+  listApplicationQueue,
   listApplications,
   prepareApplication,
   regenerateCoverLetter,
   submitApplication,
 } from '../services/applications/service.js';
 import { renderLetterDocx, renderLetterPdf } from '../services/coverLetters/render.js';
+import {
+  assistantConfiguration,
+  confirmAssistantOutcome,
+  getAssistantControl,
+  getFormSummary,
+  requestAssistantControl,
+  startAssistant,
+} from '../services/automation/assistant.js';
+import { evaluateApplicationEligibility } from '../services/jobs/eligibility.js';
 import { parsePagination, paginationSchema, paginated } from '../utils/pagination.js';
 import { badRequest, conflict, notFound } from '../utils/errors.js';
 import { serialize } from '../utils/serialize.js';
@@ -48,9 +61,30 @@ const listQuery = paginationSchema.extend({
       'WITHDRAWN',
     ])
     .optional(),
+  workflowStatus: z
+    .enum([
+      'DISCOVERED',
+      'NEEDS_REVIEW',
+      'TOO_RECENT',
+      'EXPIRED',
+      'LANGUAGE_REVIEW',
+      'ELIGIBLE',
+      'READY_TO_APPLY',
+      'ASSISTANT_RUNNING',
+      'AWAITING_REVIEW',
+      'NEEDS_INPUT',
+      'SUBMITTED',
+      'SUBMISSION_FAILED',
+      'SKIPPED',
+      'APPLIED_MANUALLY',
+    ])
+    .optional(),
+  ageEligibility: z.enum(['Eligible', 'Too Recent', 'Unknown', 'Expired']).optional(),
   profileId: objectIdSchema.optional(),
   profileKind: profileKindSchema.optional(),
   employer: z.string().max(160).optional(),
+  jobTitle: z.string().max(160).optional(),
+  languageDecision: z.enum(['Eligible', 'Excluded', 'Needs Review']).optional(),
   from: z.string().max(30).optional(),
   to: z.string().max(30).optional(),
 });
@@ -70,7 +104,17 @@ applicationsRouter.get('/export.csv', async (req, res) => {
   const query = listQuery.parse(req.query);
   const filter: Record<string, unknown> = {};
   if (query.status) filter.status = query.status;
+  if (query.workflowStatus) filter['workflow.status'] = query.workflowStatus;
+  if (query.ageEligibility) filter.ageEligibility = query.ageEligibility;
   if (query.employer) filter.employer = { $regex: query.employer, $options: 'i' };
+  if (query.jobTitle) filter.jobTitle = { $regex: query.jobTitle, $options: 'i' };
+  if (query.languageDecision) filter['languageSnapshot.languageDecision'] = query.languageDecision;
+  if (query.from || query.to) {
+    const range: Record<string, Date> = {};
+    if (query.from) range.$gte = new Date(query.from);
+    if (query.to) range.$lte = new Date(query.to);
+    filter.postedAt = range;
+  }
   if (query.profileId) filter.profile = query.profileId;
   if (query.profileKind) {
     const profiles = await CandidateProfileModel.find({ kind: query.profileKind }).select('_id');
@@ -82,6 +126,17 @@ applicationsRouter.get('/export.csv', async (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="applications-${new Date().toISOString().slice(0, 10)}.csv"`);
   res.send(csv);
+});
+
+applicationsRouter.get('/assistant/status', async (_req, res) => {
+  res.json(await assistantConfiguration());
+});
+
+applicationsRouter.get('/queue', async (req, res) => {
+  const query = paginationSchema.parse(req.query);
+  const pagination = parsePagination(query);
+  const { items, total } = await listApplicationQueue(pagination);
+  res.json(paginated(items.map((item) => serialize(item)), total, pagination));
 });
 
 applicationsRouter.get('/', async (req, res) => {
@@ -108,6 +163,65 @@ applicationsRouter.get('/:id', async (req, res) => {
   const id = objectIdSchema.parse(req.params.id);
   const application = await getApplicationDetail(id);
   res.json(serialize(application));
+});
+
+applicationsRouter.get('/:id/eligibility', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  const query = z.object({ verify: z.enum(['true', 'false']).optional() }).parse(req.query);
+  const application = await getApplicationById(id);
+  res.json(
+    await evaluateApplicationEligibility(application, {
+      verifyAvailability: query.verify === 'true',
+    }),
+  );
+});
+
+applicationsRouter.get('/:id/assistant', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  res.json(serialize(await getFormSummary(id)));
+});
+
+applicationsRouter.get('/:id/form-summary', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  res.json(serialize(await getFormSummary(id)));
+});
+
+applicationsRouter.post('/:id/assistant/start', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  const body = assistantStartSchema.parse(req.body ?? {});
+  const application = await startAssistant(id, body);
+  res.status(202).json({
+    application: serialize(application),
+    assistant: await assistantConfiguration(),
+  });
+});
+
+applicationsRouter.post('/:id/assistant/control', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  const body = assistantControlSchema.parse(req.body ?? {});
+  res.json(serialize(await requestAssistantControl(id, body.action)));
+});
+
+applicationsRouter.post('/:id/assistant/pause', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  res.json(serialize(await requestAssistantControl(id, 'pause')));
+});
+
+applicationsRouter.post('/:id/assistant/resume', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  res.json(serialize(await requestAssistantControl(id, 'resume')));
+});
+
+applicationsRouter.post('/:id/assistant/stop', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  res.json(serialize(await requestAssistantControl(id, 'stop')));
+});
+
+applicationsRouter.post('/:id/confirm-outcome', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  const body = assistantOutcomeSchema.parse(req.body ?? {});
+  const application = await confirmAssistantOutcome(id, body);
+  res.json(serialize(await getApplicationDetail(String(application._id))));
 });
 
 applicationsRouter.post('/:id/approve', async (req, res) => {

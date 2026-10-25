@@ -9,6 +9,7 @@ import { matchesRouter } from './matches.js';
 import { applicationsRouter } from './applications.js';
 import { searchRunsRouter } from './searchRuns.js';
 import { dashboardRouter } from './dashboard.js';
+import { automationRouter } from './automation.js';
 
 export const apiRouter = Router();
 
@@ -22,3 +23,4 @@ apiRouter.use('/matches', matchesRouter);
 apiRouter.use('/applications', applicationsRouter);
 apiRouter.use('/search-runs', searchRunsRouter);
 apiRouter.use('/dashboard', dashboardRouter);
+apiRouter.use('/automation', automationRouter);

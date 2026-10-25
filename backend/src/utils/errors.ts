@@ -7,6 +7,7 @@ export type ErrorCode =
   | 'FORBIDDEN'
   | 'RATE_LIMITED'
   | 'AI_NOT_CONFIGURED'
+  | 'RUNNER_DISABLED'
   | 'AI_ERROR'
   | 'UPSTREAM_ERROR'
   | 'INTERNAL';

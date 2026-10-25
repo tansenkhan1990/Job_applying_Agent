@@ -8,6 +8,8 @@ import { paginationSchema, parsePagination, paginated } from '../utils/paginatio
 import { runDiscovery, getSourceConfigStatuses } from '../services/jobs/discovery.js';
 import { matchJob } from '../services/matching/index.js';
 import { verifyJobAvailability } from '../services/jobs/verify.js';
+import { classifyLanguage } from '../services/jobs/language.js';
+import { assessJobAge } from '../services/jobs/age.js';
 import { notFound } from '../utils/errors.js';
 import { serialize } from '../utils/serialize.js';
 
@@ -19,6 +21,14 @@ const jobListQuery = paginationSchema.extend({
   source: z.string().max(40).optional(),
   profileKind: profileKindSchema.optional(),
   minScore: z.coerce.number().min(0).max(100).optional(),
+  // "true" hides vacancies whose posting mandates German. Optional/unknown postings stay.
+  excludeGermanRequired: z.enum(['true', 'false']).optional(),
+  languageDecision: z.enum(['Eligible', 'Excluded', 'Needs Review']).optional(),
+  germanOptional: z.enum(['true', 'false']).optional(),
+  englishRequired: z.enum(['true', 'false']).optional(),
+  ageEligibility: z.enum(['Eligible', 'Too Recent', 'Unknown', 'Expired']).optional(),
+  postedBefore: z.coerce.date().optional(),
+  postedAfter: z.coerce.date().optional(),
 });
 
 jobsRouter.post('/search', async (req, res) => {
@@ -38,6 +48,17 @@ jobsRouter.get('/', async (req, res) => {
   const filter: Record<string, unknown> = {};
   if (query.status) filter.status = query.status;
   if (query.source) filter.source = query.source;
+  if (query.excludeGermanRequired === 'true') {
+    filter.languageDecision = { $ne: 'Excluded' };
+    filter.languageRequirement = { $ne: 'german_required' };
+  } else if (query.languageDecision) {
+    filter.languageDecision = query.languageDecision;
+  }
+  if (query.germanOptional === 'true') filter.germanOptional = true;
+  if (query.englishRequired === 'true') filter.englishRequired = true;
+  if (query.ageEligibility) filter.ageEligibility = query.ageEligibility;
+  if (query.postedBefore) filter.postedAt = { ...(filter.postedAt as object), $lte: query.postedBefore };
+  if (query.postedAfter) filter.postedAt = { ...(filter.postedAt as object), $gte: query.postedAfter };
   if (query.q) {
     filter.$or = [
       { title: { $regex: query.q, $options: 'i' } },
@@ -119,6 +140,42 @@ jobsRouter.get('/:id', async (req, res) => {
     job: serialize(job),
     matches: matches.map((match) => serialize(match)),
   });
+});
+
+jobsRouter.post('/:id/age-check', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  const job = await JobModel.findById(id);
+  if (!job) throw notFound('Job');
+  const assessment = assessJobAge({
+    postedAt: job.postedAt,
+    postedLocalDate: job.postedLocalDate,
+    expiresAt: job.expiresAt,
+    status: job.status,
+  });
+  const updated = await JobModel.findByIdAndUpdate(
+    id,
+    { $set: { ...assessment } },
+    { new: true },
+  );
+  res.json({ job: serialize(updated), assessment });
+});
+
+jobsRouter.post('/:id/classify-language', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  const job = await JobModel.findById(id);
+  if (!job) throw notFound('Job');
+
+  const classification = classifyLanguage({
+    title: job.title,
+    location: job.location,
+    description: job.description,
+  });
+  const update = {
+    ...classification,
+    languageClassifiedAt: new Date(),
+  };
+  const updated = await JobModel.findByIdAndUpdate(id, { $set: update }, { new: true });
+  res.json({ job: serialize(updated) });
 });
 
 jobsRouter.post('/:id/match', async (req, res) => {

@@ -38,8 +38,10 @@ export interface AppSettings {
     minRelevanceScore: number;
     maxJobsPerRun: number;
     freshnessDays: number;
+    minAgeMonths: number;
     excludeInternships: boolean;
     excludeUnpaid: boolean;
+    excludeGermanRequired: boolean;
     excludeKeywords: string[];
     includeKeywords: string[];
     sources: Record<string, boolean>;
@@ -209,7 +211,12 @@ export interface JobMatch {
     detail: string;
   }>;
   mandatoryUnknown: string[];
-  languageRequirement: 'english_ok' | 'german_required' | 'german_preferred' | 'unknown';
+  languageRequirement:
+    | 'english_ok'
+    | 'german_not_required'
+    | 'german_required'
+    | 'german_preferred'
+    | 'unknown';
   languageAssessment: { requiredLanguage: string; mandatory: boolean; candidateMeets: string };
   promptInjectionDetected: boolean;
   recommendedCvDocument: string | null;
@@ -244,11 +251,30 @@ export interface Job {
   postedAt: string | null;
   postedAtUnknown?: boolean;
   discoveredAt: string;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
   lastVerifiedAt: string | null;
   expiresAt: string | null;
+  ageEligibility: 'Eligible' | 'Too Recent' | 'Unknown' | 'Expired';
+  eligibleAfter: string | null;
+  ageCheckAt: string | null;
+  ageReason: string;
   status: 'active' | 'expired' | 'unavailable' | 'duplicate';
   statusNote: string;
-  languageRequirement: 'english_ok' | 'german_required' | 'german_preferred' | 'unknown';
+  languageRequirement:
+    | 'english_ok'
+    | 'german_not_required'
+    | 'german_required'
+    | 'german_preferred'
+    | 'unknown';
+  jobLanguage: 'English' | 'German' | 'Mixed' | 'Unknown';
+  englishRequired: boolean | null;
+  germanRequired: boolean | null;
+  germanOptional: boolean | null;
+  languageEvidence: string;
+  languageConfidence: number;
+  languageDecision: 'Eligible' | 'Excluded' | 'Needs Review';
+  languageReason: string;
   seniority: 'junior' | 'mid' | 'senior' | 'lead' | 'unknown';
   bestMatch?: JobMatch | null;
   application?: {
@@ -294,6 +320,57 @@ export interface CoverLetterVersion {
   createdAt: string;
 }
 
+export type WorkflowStatus =
+  | 'DISCOVERED'
+  | 'NEEDS_REVIEW'
+  | 'TOO_RECENT'
+  | 'EXPIRED'
+  | 'LANGUAGE_REVIEW'
+  | 'ELIGIBLE'
+  | 'READY_TO_APPLY'
+  | 'ASSISTANT_RUNNING'
+  | 'AWAITING_REVIEW'
+  | 'NEEDS_INPUT'
+  | 'SUBMITTED'
+  | 'SUBMISSION_FAILED'
+  | 'SKIPPED'
+  | 'APPLIED_MANUALLY';
+
+export interface ApplicationWorkflow {
+  status: WorkflowStatus;
+  startedAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  startRequestedAt: string | null;
+  runnerId: string;
+  runnerSeenAt: string | null;
+  pauseRequested: boolean;
+  stopRequested: boolean;
+  fieldsDetected: number;
+  fieldsFilled: number;
+  filesUploaded: number;
+  unanswered: string[];
+  reviewFields: Array<{ label: string; reason: string; fieldType: string }>;
+  validationErrors: string[];
+  lastError: string;
+  pageUrl: string;
+  pageTitle: string;
+  events: Array<{
+    at: string;
+    type: string;
+    from?: string;
+    to?: string;
+    source?: string;
+    message: string;
+  }>;
+  confirmation: {
+    confirmedAt: string | null;
+    method: string;
+    evidence: string;
+    confirmationId: string;
+  };
+}
+
 export interface Application {
   id: string;
   job: Job | string;
@@ -306,6 +383,32 @@ export interface Application {
   source: string;
   status: ApplicationStatus;
   version: number;
+  jobLocation: string;
+  workArrangement: string;
+  postedAt: string | null;
+  ageEligibility: 'Eligible' | 'Too Recent' | 'Unknown' | 'Expired';
+  eligibleAfter: string | null;
+  ageReason: string;
+  discoveredAt: string | null;
+  jobDescriptionSnapshot: string;
+  languageSnapshot: {
+    jobLanguage: string;
+    englishRequired: boolean | null;
+    germanRequired: boolean | null;
+    germanOptional: boolean | null;
+    languageDecision: 'Eligible' | 'Excluded' | 'Needs Review';
+    languageConfidence: number;
+    languageEvidence: string;
+    languageReason: string;
+  };
+  matchScore: number | null;
+  matchExplanation: string;
+  profileKind: string;
+  selectedCvFilename: string;
+  selectedCoverLetterFilename: string;
+  preparationStartedAt: string | null;
+  formFilledAt: string | null;
+  workflow: ApplicationWorkflow;
   selectedCvDocument: DocumentMeta | string | null;
   selectedCoverLetterDocument: DocumentMeta | string | null;
   cvHash: string;
@@ -396,6 +499,13 @@ export interface DashboardSummary {
     submitted: number;
     failed: number;
     manual: number;
+    eligibleByAge: number;
+    tooRecent: number;
+    unknownPostingDate: number;
+    expiredByAge: number;
+    eligibleNotApplied: number;
+    preparedAwaitingReview: number;
+    assistantActive: number;
   };
   applicationsByStatus: Record<string, number>;
   topMatches: JobMatch[];
@@ -413,4 +523,34 @@ export interface ProfileExtractionResponse {
 export interface VerifyResponse {
   verification: { status: 'available' | 'unavailable' | 'unknown'; evidence: string };
   job: Job;
+}
+
+export interface EligibilityResult {
+  eligible: boolean;
+  checkedAt: string;
+  ageEligibility: 'Eligible' | 'Too Recent' | 'Unknown' | 'Expired';
+  eligibleAfter: string | null;
+  ageReason: string;
+  blockers: Array<{ code: string; message: string }>;
+  warnings: string[];
+}
+
+export interface AssistantStatus {
+  configured: boolean;
+  online: boolean;
+  lastSeenAt: string | null;
+  runnerId: string;
+  instructions: string;
+}
+
+export interface AssistantSummary {
+  applicationId: string;
+  job: { id: string; title: string; employer: string } | null;
+  profile: { id: string; name: string } | null;
+  workflow: ApplicationWorkflow;
+  selectedDocuments: {
+    cv: string | null;
+    coverLetter: string | null;
+    letterVersion: number | null;
+  };
 }

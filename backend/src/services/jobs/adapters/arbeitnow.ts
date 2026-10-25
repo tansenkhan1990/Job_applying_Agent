@@ -1,6 +1,7 @@
 import { logger } from '../../../utils/logger.js';
 import { normalizeForMatch, stripHtml } from '../../../utils/text.js';
 import { detectCountry, normalizeListing } from '../normalize.js';
+import { sortByAgePriority } from '../age.js';
 import { titleRelevance } from '../filters.js';
 import type { JobListing, JobSearchCriteria, JobSourceAdapter } from '../types.js';
 
@@ -75,7 +76,12 @@ export const arbeitnowAdapter: JobSourceAdapter = {
   isConfigured: () => true,
 
   async searchJobs(criteria: JobSearchCriteria): Promise<JobListing[]> {
-    const maxPages = Math.min(2, Math.max(1, Math.ceil(criteria.maxJobs / 100)));
+    // The public feed is newest-first. When the three-month application rule is active we
+    // page deeper (bounded to 8 requests) so older eligible postings can actually appear.
+    const maxPages =
+      criteria.minAgeMonths > 0
+        ? Math.min(8, Math.max(3, Math.ceil(criteria.maxJobs / 20)))
+        : Math.min(2, Math.max(1, Math.ceil(criteria.maxJobs / 100)));
     const listings: JobListing[] = [];
     const seen = new Set<string>();
 
@@ -98,15 +104,15 @@ export const arbeitnowAdapter: JobSourceAdapter = {
 
         seen.add(item.slug);
         listings.push(mapJob(item));
-        if (listings.length >= criteria.maxJobs * 6) break;
+        if (listings.length >= criteria.maxJobs * 20) break;
       }
-      if (listings.length >= criteria.maxJobs * 6) break;
+      if (listings.length >= criteria.maxJobs * 20) break;
       if (data.length === 0) break;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
     logger.info({ source: 'arbeitnow', fetched: listings.length, pages: maxPages }, 'Arbeitnow search complete');
-    return listings;
+    return sortByAgePriority(listings);
   },
 
   async getJobDetails(sourceJobId: string): Promise<JobListing | null> {

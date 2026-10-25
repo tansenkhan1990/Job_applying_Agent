@@ -1,6 +1,6 @@
 import type { JobMatch } from '../api/types';
 import { titleCase } from '../lib/format';
-import { Badge, Button, Card, ScoreBadge, ScoreBar } from './ui';
+import { Badge, Button, Card, LanguageBadge, ScoreBadge, ScoreBar } from './ui';
 
 const requirementTone = {
   met: 'success',
@@ -41,9 +41,7 @@ export function MatchCard({
           ) : (
             <span className="text-[11px]">Deterministic score {match.deterministicScore}</span>
           )}
-          {match.languageRequirement === 'german_required' ? (
-            <Badge tone="warning">German required</Badge>
-          ) : null}
+          <LanguageBadge requirement={match.languageRequirement} />
           {match.promptInjectionDetected ? <Badge tone="danger">Untrusted instructions ignored</Badge> : null}
           {match.reviewRequired ? <Badge tone="warning">Review required</Badge> : null}
         </span>

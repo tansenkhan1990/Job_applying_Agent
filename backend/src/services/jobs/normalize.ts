@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { Seniority, WorkArrangement } from '../../config/defaults.js';
 import { normalizeForMatch, normalizeWhitespace, stripHtml } from '../../utils/text.js';
+import { classifyLanguage, type LanguageClassification } from './language.js';
+import { assessJobAge } from './age.js';
 import type { JobListing, LanguageRequirement } from './types.js';
 
 const TRACKING_PARAMS = new Set([
@@ -196,32 +198,25 @@ export function detectSeniority(title: string, description: string): Seniority |
   return 'unknown';
 }
 
-export function detectLanguageRequirement(text: string): LanguageRequirement {
-  const sample = normalizeWhitespace(text).slice(0, 20_000);
-  const required =
-    /\b(german|deutsch)[a-zäöüß]*\b[^.\n]{0,100}\b(required|mandatory|must have|fluent|fluency|native|proficient|b2|c1|c2|verhandlungssicher|fließend|fliessend|zwingend|vorausgesetzt)\b/i.test(
-      sample,
-    ) ||
-    /\b(required|mandatory|must have|fluent|fluency|native|proficient|b2|c1|c2|verhandlungssicher|fließend|fliessend|zwingend|vorausgesetzt)\b[^.\n]{0,100}\b(german|deutsch)[a-zäöüß]*\b/i.test(
-      sample,
-    );
-  if (required) return 'german_required';
-
-  const preferred =
-    /\b(german|deutsch)[a-zäöüß]*\b[^.\n]{0,100}\b(a plus|plus|preferred|advantage|beneficial|nice to have|wünschenswert|wuenschenswert|von vorteil|bonus|optional)\b/i.test(
-      sample,
-    );
-  if (preferred) return 'german_preferred';
-
-  if (/\benglish\b/i.test(sample)) return 'english_ok';
-  return 'unknown';
-}
+export { classifyLanguage, detectLanguageRequirement } from './language.js';
 
 export function normalizeListing(
   input: Omit<
     JobListing,
     | 'canonicalUrl'
     | 'languageRequirement'
+    | 'jobLanguage'
+    | 'englishRequired'
+    | 'germanRequired'
+    | 'germanOptional'
+    | 'languageEvidence'
+    | 'languageConfidence'
+    | 'languageDecision'
+    | 'languageReason'
+    | 'ageEligibility'
+    | 'eligibleAfter'
+    | 'ageCheckAt'
+    | 'ageReason'
     | 'seniority'
     | 'workArrangement'
     | 'country'
@@ -230,13 +225,21 @@ export function normalizeListing(
     description?: string;
     descriptionHtml?: string;
     languageRequirement?: LanguageRequirement;
+    languageClassification?: LanguageClassification;
     seniority?: Seniority | 'unknown';
     workArrangement?: WorkArrangement | 'unknown';
     country?: string;
   },
 ): JobListing {
   const description = normalizeWhitespace(input.description ?? stripHtml(input.descriptionHtml ?? ''));
-  const text = `${input.title}\n${input.location}\n${description}`;
+  const classification =
+    input.languageClassification ??
+    classifyLanguage({ title: input.title, location: input.location, description });
+  const age = assessJobAge({
+    postedAt: input.postedAt,
+    postedLocalDate: input.postedLocalDate,
+    expiresAt: input.expiresAt,
+  });
   return {
     ...input,
     description,
@@ -248,7 +251,19 @@ export function normalizeListing(
     country: input.country ?? detectCountry(input.location),
     workArrangement:
       input.workArrangement ?? detectWorkArrangement(input.title, input.location, description, input.remote),
-    languageRequirement: input.languageRequirement ?? detectLanguageRequirement(text),
+    languageRequirement: input.languageRequirement ?? classification.languageRequirement,
+    jobLanguage: classification.jobLanguage,
+    englishRequired: classification.englishRequired,
+    germanRequired: classification.germanRequired,
+    germanOptional: classification.germanOptional,
+    languageEvidence: classification.languageEvidence,
+    languageConfidence: classification.languageConfidence,
+    languageDecision: classification.languageDecision,
+    languageReason: classification.languageReason,
+    ageEligibility: age.ageEligibility,
+    eligibleAfter: age.eligibleAfter,
+    ageCheckAt: age.ageCheckAt,
+    ageReason: age.ageReason,
     seniority: input.seniority ?? detectSeniority(input.title, description),
     remote: input.remote || input.workArrangement === 'remote',
   };

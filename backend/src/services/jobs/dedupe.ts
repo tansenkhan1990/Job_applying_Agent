@@ -31,9 +31,23 @@ function jobFields(listing: JobListing) {
     description: listing.description,
     descriptionHtml: listing.descriptionHtml ?? '',
     postedAt: listing.postedAt,
+    postedLocalDate: listing.postedLocalDate ?? '',
     postedAtUnknown: !listing.postedAt,
     expiresAt: listing.expiresAt,
+    ageEligibility: listing.ageEligibility,
+    eligibleAfter: listing.eligibleAfter,
+    ageCheckAt: listing.ageCheckAt,
+    ageReason: listing.ageReason,
     languageRequirement: listing.languageRequirement,
+    jobLanguage: listing.jobLanguage,
+    englishRequired: listing.englishRequired,
+    germanRequired: listing.germanRequired,
+    germanOptional: listing.germanOptional,
+    languageEvidence: listing.languageEvidence,
+    languageConfidence: listing.languageConfidence,
+    languageDecision: listing.languageDecision,
+    languageReason: listing.languageReason,
+    languageClassifiedAt: new Date(),
     seniority: listing.seniority,
     fingerprint: jobFingerprint(listing.employer, listing.title, listing.location),
     contentHash: contentHash(listing),
@@ -93,6 +107,8 @@ export async function upsertJobListings(
         {
           $set: {
             ...fields,
+            lastSeenAt: new Date(),
+            ...(existing.firstSeenAt ? {} : { firstSeenAt: existing.discoveredAt ?? new Date() }),
             lastVerifiedAt: new Date(),
             status:
               expiresAt && expiresAt.getTime() < Date.now()
@@ -113,6 +129,8 @@ export async function upsertJobListings(
       const created = await JobModel.create({
         ...fields,
         discoveredAt: new Date(),
+        firstSeenAt: new Date(),
+        lastSeenAt: new Date(),
         lastVerifiedAt: new Date(),
         status: listing.expiresAt && listing.expiresAt.getTime() < Date.now() ? 'expired' : 'active',
         searchRunId: options.searchRunId ?? null,

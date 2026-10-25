@@ -35,12 +35,23 @@ export function ApplicationsPage() {
   const [employer, setEmployer] = useState('');
   const [searchEmployer, setSearchEmployer] = useState('');
   const [profileKind, setProfileKind] = useState<ProfileKind | ''>('');
+  const [ageEligibility, setAgeEligibility] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [searchTitle, setSearchTitle] = useState('');
+  const [languageDecision, setLanguageDecision] = useState('');
+  const [postedFrom, setPostedFrom] = useState('');
+  const [postedTo, setPostedTo] = useState('');
   const [page, setPage] = useState(1);
 
   const params = new URLSearchParams({ page: String(page), limit: '20' });
   if (status) params.set('status', status);
   if (searchEmployer.trim()) params.set('employer', searchEmployer.trim());
+  if (searchTitle.trim()) params.set('jobTitle', searchTitle.trim());
   if (profileKind) params.set('profileKind', profileKind);
+  if (ageEligibility) params.set('ageEligibility', ageEligibility);
+  if (languageDecision) params.set('languageDecision', languageDecision);
+  if (postedFrom) params.set('from', postedFrom);
+  if (postedTo) params.set('to', postedTo);
 
   const applications = useQuery<ApplicationListResponse>({
     queryKey: ['applications', params.toString()],
@@ -51,7 +62,12 @@ export function ApplicationsPage() {
   const exportParams = new URLSearchParams();
   if (status) exportParams.set('status', status);
   if (searchEmployer.trim()) exportParams.set('employer', searchEmployer.trim());
+  if (searchTitle.trim()) exportParams.set('jobTitle', searchTitle.trim());
   if (profileKind) exportParams.set('profileKind', profileKind);
+  if (ageEligibility) exportParams.set('ageEligibility', ageEligibility);
+  if (languageDecision) exportParams.set('languageDecision', languageDecision);
+  if (postedFrom) exportParams.set('from', postedFrom);
+  if (postedTo) exportParams.set('to', postedTo);
   const exportUrl = `${apiBase()}/applications/export.csv?${exportParams.toString()}`;
 
   const matchScore = (application: Application): number | null => {
@@ -79,11 +95,12 @@ export function ApplicationsPage() {
 
       <Card padded={false}>
         <form
-          className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_11rem_11rem_auto]"
+          className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           onSubmit={(event) => {
             event.preventDefault();
             setPage(1);
             setSearchEmployer(employer);
+            setSearchTitle(jobTitle);
           }}
         >
           <Input
@@ -91,6 +108,12 @@ export function ApplicationsPage() {
             value={employer}
             onChange={(event) => setEmployer(event.target.value)}
             aria-label="Filter by employer"
+          />
+          <Input
+            placeholder="Filter by job title…"
+            value={jobTitle}
+            onChange={(event) => setJobTitle(event.target.value)}
+            aria-label="Filter by job title"
           />
           <Select
             value={status}
@@ -120,7 +143,60 @@ export function ApplicationsPage() {
             <option value="ai_engineer">AI Engineer</option>
             <option value="devops_cloud">DevOps / Cloud</option>
           </Select>
-          <Button type="submit">Apply filters</Button>
+          <Select
+            value={ageEligibility}
+            onChange={(event) => {
+              setAgeEligibility(event.target.value);
+              setPage(1);
+            }}
+            aria-label="Filter by posting age eligibility"
+          >
+            <option value="">Any posting age</option>
+            <option value="Eligible">Age eligible</option>
+            <option value="Too Recent">Too recent</option>
+            <option value="Unknown">Date unknown</option>
+            <option value="Expired">Expired</option>
+          </Select>
+          <Select
+            value={languageDecision}
+            onChange={(event) => {
+              setLanguageDecision(event.target.value);
+              setPage(1);
+            }}
+            aria-label="Filter by language requirement"
+          >
+            <option value="">Any language result</option>
+            <option value="Eligible">English-language eligible</option>
+            <option value="Needs Review">Language needs review</option>
+            <option value="Excluded">Language excluded</option>
+          </Select>
+          <label className="flex flex-col gap-1 text-[11px] text-slate-400">
+            Posted from
+            <Input
+              type="date"
+              value={postedFrom}
+              onChange={(event) => {
+                setPostedFrom(event.target.value);
+                setPage(1);
+              }}
+              aria-label="Filter by earliest posting date"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-slate-400">
+            Posted to
+            <Input
+              type="date"
+              value={postedTo}
+              onChange={(event) => {
+                setPostedTo(event.target.value);
+                setPage(1);
+              }}
+              aria-label="Filter by latest posting date"
+            />
+          </label>
+          <div className="flex items-end">
+            <Button type="submit">Apply filters</Button>
+          </div>
         </form>
       </Card>
 
@@ -167,7 +243,22 @@ export function ApplicationsPage() {
                       <p className="text-xs text-slate-400">{application.employer}</p>
                       <p className="text-[11px] text-slate-500">
                         {application.source} · v{application.version}
+                        {application.postedAt ? ` · posted ${formatDate(application.postedAt)}` : ''}
                       </p>
+                      <Badge
+                        tone={
+                          application.ageEligibility === 'Eligible'
+                            ? 'success'
+                            : application.ageEligibility === 'Too Recent'
+                              ? 'warning'
+                              : application.ageEligibility === 'Expired'
+                                ? 'danger'
+                                : 'neutral'
+                        }
+                        className="mt-1"
+                      >
+                        {application.ageEligibility}
+                      </Badge>
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-300">{profileLabel(application)}</td>
                     <td className="px-4 py-3">
@@ -175,6 +266,11 @@ export function ApplicationsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <Badge tone={statusTone(application.status)}>{titleCase(application.status)}</Badge>
+                      {application.workflow?.status ? (
+                        <p className="mt-1 text-[10px] text-slate-400">
+                          {titleCase(application.workflow.status)}
+                        </p>
+                      ) : null}
                       {application.approval?.approvedAt ? (
                         <p className="mt-1 text-[10px] text-slate-500">
                           approved v{application.approval.applicationVersion} ·{' '}

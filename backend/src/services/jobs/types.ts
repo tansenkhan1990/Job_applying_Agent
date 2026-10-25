@@ -1,6 +1,15 @@
 import type { ProfileKind, SearchCriteria, Seniority, WorkArrangement } from '../../config/defaults.js';
+import type { AgeEligibility } from './age.js';
 
-export type LanguageRequirement = 'english_ok' | 'german_required' | 'german_preferred' | 'unknown';
+export type LanguageRequirement =
+  | 'english_ok'
+  | 'german_not_required'
+  | 'german_required'
+  | 'german_preferred'
+  | 'unknown';
+
+export type JobLanguage = 'English' | 'German' | 'Mixed' | 'Unknown';
+export type LanguageDecision = 'Eligible' | 'Excluded' | 'Needs Review';
 
 export interface JobListing {
   source: string;
@@ -21,8 +30,22 @@ export interface JobListing {
   description: string;
   descriptionHtml?: string;
   postedAt: Date | null;
+  /** Calendar date (YYYY-MM-DD) in the source's own timezone, when the source provides one. */
+  postedLocalDate?: string | null;
   expiresAt: Date | null;
+  ageEligibility: AgeEligibility;
+  eligibleAfter: Date | null;
+  ageCheckAt: Date;
+  ageReason: string;
   languageRequirement: LanguageRequirement;
+  jobLanguage: JobLanguage;
+  englishRequired: boolean | null;
+  germanRequired: boolean | null;
+  germanOptional: boolean | null;
+  languageEvidence: string;
+  languageConfidence: number;
+  languageDecision: LanguageDecision;
+  languageReason: string;
   seniority: Seniority | 'unknown';
 }
 
@@ -38,7 +61,10 @@ export interface JobSearchCriteria {
   excludeKeywords: string[];
   excludeInternships: boolean;
   excludeUnpaid: boolean;
+  /** Drop vacancies whose posting mandates German. Optional/preferred German and unclassified postings stay. */
+  excludeGermanRequired: boolean;
   freshnessDays: number;
+  minAgeMonths: number;
   maxJobs: number;
 }
 
@@ -83,7 +109,9 @@ export function criteriaFromSettings(
     excludeKeywords: search.excludeKeywords,
     excludeInternships: search.excludeInternships,
     excludeUnpaid: search.excludeUnpaid,
+    excludeGermanRequired: search.excludeGermanRequired,
     freshnessDays: search.freshnessDays,
+    minAgeMonths: search.minAgeMonths,
     maxJobs: search.maxJobsPerRun,
     ...overrides,
   };

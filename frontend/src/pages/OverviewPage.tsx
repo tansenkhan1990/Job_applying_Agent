@@ -78,10 +78,30 @@ export function OverviewPage() {
         </WarningNote>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
         <StatCard label="Discovered" value={totals.totalJobs} hint={`${totals.activeJobs} active`} />
         <StatCard label="Relevant ≥80" value={totals.relevant} tone="success" hint="Across all profiles" />
+        <StatCard
+          label="Age eligible"
+          value={totals.eligibleByAge}
+          tone="success"
+          hint={`${totals.eligibleNotApplied} not applied`}
+        />
+        <StatCard label="Too recent" value={totals.tooRecent} tone="warning" hint="Under 3 calendar months" />
+        <StatCard
+          label="Date unknown"
+          value={totals.unknownPostingDate}
+          tone="neutral"
+          hint="Needs review, never auto-applied"
+        />
+        <StatCard label="Expired" value={totals.expiredByAge} tone="danger" hint="Not accepting applications" />
         <StatCard label="Pending review" value={totals.pendingApproval} tone="warning" hint="Approval required" />
+        <StatCard
+          label="Awaiting me"
+          value={totals.preparedAwaitingReview}
+          tone="info"
+          hint={`${totals.assistantActive} assistant active`}
+        />
         <StatCard label="Submitted" value={totals.submitted} tone="success" hint="Confirmed only" />
         <StatCard label="Manual action" value={totals.manual} tone="info" hint="Needs your browser" />
         <StatCard label="Failed" value={totals.failed} tone="danger" hint="See application details" />
@@ -207,7 +227,9 @@ export function OverviewPage() {
         <Card title="Safety invariants">
           <ul className="space-y-2 text-sm text-slate-300">
             <li>No fabricated experience, metrics or legal declarations.</li>
-            <li>German-mandatory roles are flagged, not silently filtered.</li>
+            <li>Jobs that require German are filtered out by default; optional or not-required German stays.</li>
+            <li>Only postings at least three calendar months old can enter the application assistant.</li>
+            <li>Unknown posting dates and too-recent jobs are stored but kept out of the queue.</li>
             <li>Only fictional mock jobs can use simulated submission.</li>
             <li>Real employers require you to complete the form and confirm manually.</li>
             <li>Duplicate applications are blocked by job and by employer/title.</li>

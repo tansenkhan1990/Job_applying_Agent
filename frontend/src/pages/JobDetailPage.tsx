@@ -19,6 +19,7 @@ import {
   Card,
   EmptyState,
   ErrorNote,
+  LanguageDecisionBadge,
   PageHeader,
   ScoreBadge,
   Select,
@@ -62,6 +63,26 @@ export function JobDetailPage() {
       setVerification(result.verification);
       void queryClient.invalidateQueries({ queryKey: ['job', id] });
       toast.info(`Availability: ${result.verification.status} — ${result.verification.evidence}`);
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+
+  const ageCheck = useMutation({
+    mutationFn: () => api<{ job: Job }>(`/jobs/${id}/age-check`, { method: 'POST', body: {} }),
+    onSuccess: () => {
+      toast.success('Posting age rechecked.');
+      void queryClient.invalidateQueries({ queryKey: ['job', id] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs'] });
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+
+  const classify = useMutation({
+    mutationFn: () => api<{ job: Job }>(`/jobs/${id}/classify-language`, { method: 'POST', body: {} }),
+    onSuccess: () => {
+      toast.success('Language requirement reclassified.');
+      void queryClient.invalidateQueries({ queryKey: ['job', id] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs'] });
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -116,9 +137,10 @@ export function JobDetailPage() {
               <Badge tone="neutral">{titleCase(job.workArrangement)}</Badge>
             ) : null}
             {job.seniority !== 'unknown' ? <Badge tone="neutral">{titleCase(job.seniority)}</Badge> : null}
-            {job.languageRequirement === 'german_required' ? (
-              <Badge tone="warning">German mandatory</Badge>
-            ) : null}
+            <LanguageDecisionBadge
+              decision={job.languageDecision}
+              confidence={job.languageConfidence}
+            />
           </span>
         }
         actions={
@@ -210,7 +232,12 @@ export function JobDetailPage() {
                 </label>
                 <Button
                   variant="primary"
-                  disabled={!chosen || job.status !== 'active'}
+                  disabled={
+                    !chosen ||
+                    job.status !== 'active' ||
+                    job.languageDecision === 'Excluded' ||
+                    job.ageEligibility !== 'Eligible'
+                  }
                   loading={prepare.isPending}
                   onClick={() => prepare.mutate(chosen)}
                 >
@@ -218,6 +245,23 @@ export function JobDetailPage() {
                 </Button>
               </div>
             )}
+            {job.ageEligibility !== 'Eligible' ? (
+              <WarningNote>
+                Posting-age check: <strong>{job.ageEligibility}</strong>. {job.ageReason} The application
+                assistant cannot start until the original posting date confirms at least three calendar months.
+              </WarningNote>
+            ) : null}
+            {job.languageDecision === 'Excluded' ? (
+              <WarningNote>
+                This posting mandates German, so it is excluded from the English-first queue. Change the
+                language classification only if the original listing says otherwise.
+              </WarningNote>
+            ) : job.languageDecision === 'Needs Review' ? (
+              <WarningNote>
+                The language requirement is ambiguous. Read the original listing and verify English is
+                acceptable before starting an application.
+              </WarningNote>
+            ) : null}
             <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
               Preparation generates a tailored cover letter, extracts screening questions and creates an
               approval record request. Nothing is submitted until you approve and explicitly submit.
@@ -260,6 +304,86 @@ export function JobDetailPage() {
                 </dd>
               </div>
             </dl>
+          </Card>
+
+          <Card
+            title="Posting age"
+            subtitle={
+              job.postedAt ? `Originally posted ${formatDate(job.postedAt)}` : 'Original posting date unknown'
+            }
+            action={
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => ageCheck.mutate()}
+                loading={ageCheck.isPending}
+              >
+                Recheck
+              </Button>
+            }
+          >
+            <div className="space-y-2.5 text-xs">
+              <div className="flex flex-wrap gap-1.5">
+                <Badge
+                  tone={
+                    job.ageEligibility === 'Eligible'
+                      ? 'success'
+                      : job.ageEligibility === 'Too Recent'
+                        ? 'warning'
+                        : job.ageEligibility === 'Expired'
+                          ? 'danger'
+                          : 'neutral'
+                  }
+                >
+                  {job.ageEligibility}
+                </Badge>
+                <Badge tone="neutral">
+                  {job.eligibleAfter ? `Eligible from ${formatDate(job.eligibleAfter)}` : 'No eligible date'}
+                </Badge>
+              </div>
+              <p className="leading-relaxed text-slate-300">{job.ageReason}</p>
+              <p className="text-[11px] leading-relaxed text-slate-500">
+                Calendar-month calculation from the original posting date. First-seen and discovery dates are
+                never used as a substitute.
+              </p>
+            </div>
+          </Card>
+
+          <Card
+            title="Language assessment"
+            subtitle={`Confidence ${job.languageConfidence}% · ${job.jobLanguage} posting`}
+            action={
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => classify.mutate()}
+                loading={classify.isPending}
+              >
+                Reclassify
+              </Button>
+            }
+          >
+            <div className="space-y-2.5 text-xs">
+              <div className="flex flex-wrap gap-1.5">
+                <LanguageDecisionBadge decision={job.languageDecision} />
+                {job.englishRequired ? (
+                  <Badge tone="success">English required / sufficient</Badge>
+                ) : null}
+                {job.germanOptional ? <Badge tone="info">German optional</Badge> : null}
+                {job.germanRequired ? <Badge tone="danger">German required</Badge> : null}
+              </div>
+              <p className="leading-relaxed text-slate-300">{job.languageReason}</p>
+              {job.languageEvidence ? (
+                <blockquote className="border-l-2 border-slate-700 pl-2 italic leading-relaxed text-slate-400">
+                  “{job.languageEvidence}”
+                </blockquote>
+              ) : (
+                <p className="text-slate-500">No direct language statement was found in the description.</p>
+              )}
+              <p className="text-[11px] leading-relaxed text-slate-500">
+                Rule-based classification with supporting evidence. Always verify the original listing.
+              </p>
+            </div>
           </Card>
 
           <Card title="Profiles evaluated" padded={false}>

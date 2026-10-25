@@ -36,6 +36,50 @@ export function Badge({
   );
 }
 
+export type LanguageRequirementValue =
+  | 'english_ok'
+  | 'german_not_required'
+  | 'german_required'
+  | 'german_preferred'
+  | 'unknown';
+
+const languageLabels: Record<LanguageRequirementValue, { tone: BadgeTone; label: string }> = {
+  english_ok: { tone: 'success', label: 'English OK' },
+  german_not_required: { tone: 'success', label: 'German not required' },
+  german_preferred: { tone: 'info', label: 'German optional' },
+  german_required: { tone: 'warning', label: 'German mandatory' },
+  unknown: { tone: 'neutral', label: 'Language unspecified' },
+};
+
+export function LanguageBadge({ requirement }: { requirement: LanguageRequirementValue }) {
+  const entry = languageLabels[requirement] ?? languageLabels.unknown;
+  return <Badge tone={entry.tone}>{entry.label}</Badge>;
+}
+
+export type LanguageDecisionValue = 'Eligible' | 'Excluded' | 'Needs Review';
+
+const decisionLabels: Record<LanguageDecisionValue, { tone: BadgeTone; label: string }> = {
+  Eligible: { tone: 'success', label: 'Language eligible' },
+  Excluded: { tone: 'danger', label: 'German mandatory' },
+  'Needs Review': { tone: 'warning', label: 'Language needs review' },
+};
+
+export function LanguageDecisionBadge({
+  decision,
+  confidence,
+}: {
+  decision: LanguageDecisionValue;
+  confidence?: number;
+}) {
+  const entry = decisionLabels[decision] ?? decisionLabels['Needs Review'];
+  return (
+    <Badge tone={entry.tone}>
+      {entry.label}
+      {confidence !== undefined ? ` · ${confidence}%` : ''}
+    </Badge>
+  );
+}
+
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
 type ButtonSize = 'sm' | 'md';
 

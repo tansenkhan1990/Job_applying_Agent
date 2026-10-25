@@ -14,3 +14,6 @@ documents/**/*.docx
 # Generated artifacts
 generated/
 tmp/
+
+# Local Playwright browser profile (cookies/logins stay on this machine)
+.runner-profile/

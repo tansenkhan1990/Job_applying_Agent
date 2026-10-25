@@ -188,7 +188,7 @@ export const mockAdapter: JobSourceAdapter = {
 
   async searchJobs(criteria: JobSearchCriteria): Promise<JobListing[]> {
     const listings = SAMPLES.map(normalizeListing);
-    return listings.slice(0, Math.max(criteria.maxJobs, 8));
+    return listings.slice(0, Math.max(1, criteria.maxJobs));
   },
 
   async getJobDetails(sourceJobId: string): Promise<JobListing | null> {

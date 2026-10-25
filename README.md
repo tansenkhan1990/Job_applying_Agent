@@ -47,14 +47,14 @@ Implemented and verified on this machine:
 | Area | Status |
 | --- | --- |
 | Docker Compose backend + MongoDB | ✅ `docker compose up --build` healthy |
-| React dashboard (8 pages) | ✅ builds; dev server and optional nginx container verified |
+| React dashboard (10 pages) | ✅ builds; dev server and optional nginx container verified |
 | PDF/DOCX ingestion, hashing, change/removal detection, OCR flag | ✅ automated tests |
 | Document → career-profile mapping (auto + manual) | ✅ automated tests |
 | Three seeded career profiles and CV-based extraction | ✅ AI path + rule-based fallback |
 | Arbeitnow integration | ✅ live: 60 raw listings in a 20-job run |
 | Remotive integration | ✅ live: 10 raw listings in a 20-job run |
 | Mock source for offline testing | ✅ 8 fictional listings |
-| Normalization, dedupe, German-requirement detection | ✅ automated tests |
+| Normalization, dedupe, German requirement/optional detection and filtering | ✅ automated tests |
 | Three-day freshness window for discovery (configurable 1–90 days) | ✅ automated tests |
 | Permanent applied-job registry; never re-applies to a stored application | ✅ automated tests |
 | Hybrid matching with explanations and mandatory-requirement review | ✅ automated tests |
@@ -65,7 +65,7 @@ Implemented and verified on this machine:
 | Real automatic ATS submission | ❌ intentionally not claimed; manual channel only |
 | OCR of scanned PDFs | ❌ detected and flagged, not performed |
 
-All 68 backend tests pass, and an end-to-end API run covered ingestion → extraction →
+All 77 backend tests pass, and an end-to-end API run covered ingestion → extraction →
 approval → mock submission → downloads → live discovery. Automated tests never contact
 real employers and never call OpenRouter.
 
@@ -237,8 +237,12 @@ Discovery:
 - normalizes title, employer, location, work arrangement, language requirement, seniority;
 - filters internships, unpaid roles, stale postings, out-of-scope locations and excluded
   keywords;
-- **does not** exclude a job merely for mentioning German — mandatory German is detected
-  and flagged for matching;
+- **keeps only vacancies where German is not required or optional** by default: postings
+  that explicitly mandate German are filtered out, while English-friendly
+  (`english_ok`), German-optional (`german_preferred`), explicitly not-required
+  (`german_not_required`, e.g. “German is not required”) and unclassified postings stay.
+  A job is never excluded merely for mentioning German, and the filter can be turned off in
+  Settings;
 - deduplicates by `(source, sourceJobId)`, canonical URL and a normalized
   employer/title/location fingerprint;
 - records discovery and last-verification timestamps and per-source errors;
@@ -253,7 +257,8 @@ test. Do not add scraping that violates a site's terms.
 1. **Discover** — bounded search in enabled sources, limited to vacancies posted in the
    last three days by default. Each run is recorded with per-source counts and errors; only
    one run may execute at a time. The per-source split respects the overall `maxJobsPerRun`
-   budget.
+   budget. Only vacancies where German is not required or optional are stored by default
+   (Settings → **Only keep jobs where German is not required or optional**).
 
    Seeded profile skills are only search hints. Running **Extract from CV** replaces them
    with skills actually evidenced by that CV, so match scores cannot be inflated by
@@ -343,7 +348,7 @@ npm run build        # esbuild -> dist/
 npm run start        # node dist/index.js
 # Bare-metal backend needs: MONGODB_URI=mongodb://127.0.0.1:27017/job_agent \    #   DOCUMENTS_PATH=../documents npm start
 npm run typecheck
-npm test             # 68 tests, in-memory MongoDB, external APIs mocked
+npm test             # 77 tests, in-memory MongoDB, external APIs mocked
 
 # Frontend (from frontend/)
 npm run dev
@@ -384,6 +389,10 @@ PATCH  /api/applications/:id/cover-letter
 POST   /api/applications/:id/cover-letter/regenerate
 GET    /api/applications/:id/cover-letter/download?format=pdf|docx
 GET    /api/applications/export.csv
+GET    /api/applications/queue  GET /api/applications/:id/eligibility
+GET    /api/applications/:id/assistant
+POST   /api/applications/:id/assistant/start|pause|resume|stop
+POST   /api/applications/:id/confirm-outcome
 GET    /api/search-runs         GET    /api/search-runs/:id
 GET    /api/dashboard/summary
 ```
@@ -400,15 +409,25 @@ MongoDB collections (Mongoose):
 - **Document** — relative path, type, profile mapping, hash, preview, full text (opt-in
   select), page/word counts, status, missing flag.
 - **Job** — normalized listing, source ids, URLs, location, arrangement, language,
-  seniority, fingerprint, freshness, merged sources.
+  seniority, fingerprint, freshness, merged sources, and the posting-age fields
+  `postedAt` (original publication date), `firstSeenAt`, `lastSeenAt`, `ageEligibility`
+  (`Eligible` / `Too Recent` / `Unknown` / `Expired`), `eligibleAfter` and `ageCheckAt`.
+  Age is computed with calendar-month arithmetic, never `firstSeenAt` in place of a missing
+  `postedAt`.
 - **JobMatch** — profile-specific score, breakdown, matched/missing skills, strengths,
   concerns, requirements, review flags, model and prompt version.
 - **CoverLetter** — immutable versions per job/profile/application with grounding result
   and content hash.
 - **Application** — state machine history, selected documents and hashes, questions,
-  approval record, submission evidence, `appliedAt`, idempotency and duplicate keys. This
-  is the durable applied-jobs registry: submitted applications are never deleted and block
-  re-application forever.
+  approval record, submission evidence, `appliedAt`, idempotency and duplicate keys. Each
+  record snapshots the job title/company/location, `postedAt` and `ageEligibility`, the
+  language classification with evidence, the document filenames and profile, the match
+  score/explanation, the description snapshot, discovery date, preparation/form-filled
+  dates, submission confirmation, form completion summary, unanswered questions and
+  validation errors, browser-automation status and the last error. `statusHistory` is
+  append-only (previous/new status, timestamp, reason, source `AI`/`user`/`system`,
+  reference). This is the durable applied-jobs registry: submitted applications are never
+  deleted and block re-application forever, even if the source listing disappears.
 - **SearchRun** — criteria snapshot, per-source counts/errors, duration, trigger.
 - **AppSetting** — one validated document with non-secret settings plus scheduler lock.
 
@@ -427,7 +446,10 @@ Coverage:
 
 - PDF/DOCX parsing, empty-PDF OCR detection, corrupt/unsupported files
 - scanning, hashing, changed/missing documents, manual mapping precedence
-- URL canonicalization, fingerprints, normalization, German requirement detection
+- URL canonicalization, fingerprints, normalization
+- German requirement detection (`german_required`, `german_preferred`,
+  `german_not_required`) including negations and the German-optional discovery filter
+- jobs API filter that hides German-mandatory vacancies from the default list
 - freshness window (three-day default), unknown publication dates flagged
 - internships/unpaid/expired/location/title filters
 - dedupe by source id, canonical URL and batch duplicates
@@ -442,6 +464,15 @@ Coverage:
   manual-action flow, CSV export
 - applied-job registry: a role applied to 100 days ago is still blocked when reposted,
   and the jobs list exposes the stored application for each vacancy
+- posting age: exactly three calendar months is eligible, anything newer is `Too Recent`,
+  month-end clamping, unknown dates never enter the workflow, an old but closed listing is
+  `Expired`, and a reposted job is not treated as old from `firstSeenAt`
+- application queue and assistant preflight: age, language, availability, duplicate and
+  match gates; a filled-but-unconfirmed form stays `AWAITING_REVIEW`; a confirmed
+  submission cannot be submitted again
+- form-field mapping and screening-question extraction
+- application history survives a database restart on the same data directory (the Docker
+  named volume does the same across container recreations)
 
 `mongodb-memory-server` downloads a MongoDB binary on first use. Tests mock all external
 HTTP calls and never submit a real application.
@@ -534,7 +565,7 @@ authentication because this is a single-user local application; do not change th
 │   │   ├── app.ts           Express app
 │   │   ├── index.ts         API entry
 │   │   └── worker.ts        scheduler entry
-│   ├── tests/               68 Vitest tests
+│   ├── tests/               77 Vitest tests
 │   ├── Dockerfile
 │   └── package.json
 ├── frontend/

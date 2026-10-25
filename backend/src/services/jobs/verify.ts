@@ -1,6 +1,8 @@
 import { JobModel } from '../../models/Job.js';
 import { logger } from '../../utils/logger.js';
 import { getAdapter } from './adapters/index.js';
+import { assessJobAge } from './age.js';
+import { getSettings } from '../settingsService.js';
 
 export interface AvailabilityResult {
   status: 'available' | 'unavailable' | 'unknown';
@@ -38,14 +40,30 @@ export async function verifyJobAvailability(jobId: string): Promise<Availability
     };
   }
 
-  const update: Record<string, unknown> = { lastVerifiedAt: new Date() };
+  const now = new Date();
+  const update: Record<string, unknown> = { lastVerifiedAt: now, lastSeenAt: now };
+  let status = job.status;
   if (result.status === 'unavailable') {
     update.status = 'unavailable';
     update.statusNote = result.evidence.slice(0, 300);
+    status = 'unavailable';
   } else if (result.status === 'available' && job.status === 'unavailable') {
     update.status = 'active';
     update.statusNote = '';
+    status = 'active';
   }
+  const settings = await getSettings();
+  const age = assessJobAge({
+    postedAt: job.postedAt,
+    expiresAt: job.expiresAt,
+    status,
+    months: settings.search.minAgeMonths,
+    now,
+  });
+  update.ageEligibility = age.ageEligibility;
+  update.eligibleAfter = age.eligibleAfter;
+  update.ageCheckAt = age.ageCheckAt;
+  update.ageReason = age.ageReason;
   await JobModel.updateOne({ _id: job._id }, { $set: update });
 
   logger.info({ jobId, status: result.status, source: job.source }, 'Job availability verified');

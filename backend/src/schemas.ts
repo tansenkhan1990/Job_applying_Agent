@@ -24,9 +24,11 @@ export const searchCriteriaSchema = z.object({
   seniority: z.array(senioritySchema).max(4),
   minRelevanceScore: z.number().min(0).max(100),
   maxJobsPerRun: z.number().int().min(1).max(200),
-  freshnessDays: z.number().int().min(1).max(180),
+  freshnessDays: z.number().int().min(30).max(3650),
+  minAgeMonths: z.number().int().min(0).max(60),
   excludeInternships: z.boolean(),
   excludeUnpaid: z.boolean(),
+  excludeGermanRequired: z.boolean(),
   excludeKeywords: z.array(z.string().min(1).max(80)).max(50),
   includeKeywords: z.array(z.string().min(1).max(80)).max(50),
   sources: z.record(z.string(), z.boolean()),
@@ -207,3 +209,53 @@ export const regenCoverLetterSchema = z
   })
   .strict()
   .default({});
+
+export const assistantStartSchema = z
+  .object({
+    confirmed: z.literal(true).optional(),
+    confirmedLanguage: z.boolean().optional(),
+  })
+  .strict()
+  .default({});
+
+export const assistantControlSchema = z.object({ action: z.enum(['pause', 'resume', 'stop']) }).strict();
+
+export const assistantOutcomeSchema = z
+  .object({
+    confirmed: z.literal(true),
+    outcome: z.enum(['submitted', 'applied_manually', 'failed', 'skipped']),
+    confirmationId: z.string().max(300).optional(),
+    evidence: z.string().max(2000).optional(),
+    note: z.string().max(2000).optional(),
+  })
+  .strict();
+
+export const assistantProgressSchema = z
+  .object({
+    runnerId: z.string().min(1).max(120),
+    status: z.enum(['AWAITING_REVIEW', 'NEEDS_INPUT']).optional(),
+    pauseReason: z.string().max(500).optional(),
+    fieldsDetected: z.number().int().min(0).max(500).optional(),
+    fieldsFilled: z.number().int().min(0).max(500).optional(),
+    filesUploaded: z.number().int().min(0).max(20).optional(),
+    unanswered: z.array(z.string().max(300)).max(30).optional(),
+    reviewFields: z
+      .array(
+        z.object({
+          label: z.string().max(200),
+          reason: z.string().max(300),
+          fieldType: z.string().max(40).optional(),
+        }),
+      )
+      .max(30)
+      .optional(),
+    validationErrors: z.array(z.string().max(300)).max(30).optional(),
+    pageUrl: z.string().max(500).optional(),
+    pageTitle: z.string().max(300).optional(),
+    message: z.string().max(500).optional(),
+  })
+  .strict();
+
+export const runnerHeartbeatSchema = z
+  .object({ runnerId: z.string().min(1).max(120), version: z.string().max(40).optional() })
+  .strict();

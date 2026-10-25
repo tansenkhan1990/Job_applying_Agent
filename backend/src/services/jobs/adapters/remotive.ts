@@ -1,6 +1,7 @@
 import { logger } from '../../../utils/logger.js';
 import { stripHtml } from '../../../utils/text.js';
 import { detectCountry, normalizeListing } from '../normalize.js';
+import { sortByAgePriority } from '../age.js';
 import type { JobListing, JobSearchCriteria, JobSourceAdapter } from '../types.js';
 
 /**
@@ -52,6 +53,10 @@ function mapJob(item: RemotiveJob): JobListing {
     descriptionHtml: item.description,
     description: stripHtml(item.description ?? ''),
     postedAt: parseDate(item.publication_date),
+    // Remotive publishes a wall-clock date without an offset; keep that calendar day.
+    postedLocalDate: /^\d{4}-\d{2}-\d{2}/.test(item.publication_date ?? '')
+      ? item.publication_date.slice(0, 10)
+      : null,
     expiresAt: null,
   });
 }
@@ -85,7 +90,7 @@ export const remotiveAdapter: JobSourceAdapter = {
       .map(mapJob);
 
     logger.info({ source: 'remotive', fetched: listings.length }, 'Remotive search complete');
-    return listings;
+    return sortByAgePriority(listings);
   },
 
   async getJobDetails(): Promise<JobListing | null> {

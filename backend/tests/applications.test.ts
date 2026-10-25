@@ -310,6 +310,58 @@ describe('application workflow', () => {
     expect(blocked.body.error.message).toMatch(/already applied to/i);
   });
 
+  it('blocks duplicates by canonical job URL even under a different title', async () => {
+    const { fullStackJob, fullStackProfile } = await seedMockJobs();
+    const appliedAt = new Date(Date.now() - 5 * 86_400_000);
+
+    await ApplicationModel.create({
+      job: fullStackJob._id,
+      profile: fullStackProfile._id,
+      employer: fullStackJob.employer,
+      jobTitle: fullStackJob.title,
+      jobUrl: fullStackJob.url,
+      applicationUrl: fullStackJob.applicationUrl,
+      source: fullStackJob.source,
+      status: 'SUBMITTED',
+      appliedAt,
+      duplicateKey: 'some-other-employer-title-key',
+      idempotencyKey: 'same-url-application',
+      submission: { attemptedAt: appliedAt, adapter: 'manual_user_confirmation', confirmed: true },
+    });
+
+    const sameUrlJob = await JobModel.create({
+      source: 'remotive',
+      sourceJobId: 'same-url-different-id',
+      sourceLabel: 'Remotive',
+      url: `${fullStackJob.url}?ref=repost`,
+      canonicalUrl: fullStackJob.canonicalUrl,
+      applicationUrl: fullStackJob.applicationUrl,
+      employer: 'A Different Employer GmbH',
+      title: 'Platform Engineer',
+      location: fullStackJob.location,
+      country: 'Germany',
+      remote: false,
+      workArrangement: 'hybrid',
+      employmentType: 'full-time',
+      salary: '',
+      tags: [],
+      description: 'Same canonical URL, different source id and title.',
+      postedAt: new Date(Date.now() - 200 * 86_400_000),
+      ageEligibility: 'Eligible',
+      expiresAt: null,
+      status: 'active',
+      fingerprint: jobFingerprint('A Different Employer GmbH', 'Platform Engineer', fullStackJob.location),
+      discoveredAt: new Date(),
+      lastVerifiedAt: new Date(),
+    });
+
+    const blocked = await request(app)
+      .post('/api/applications/prepare')
+      .send({ jobId: String(sameUrlJob._id), profileId: String(fullStackProfile._id) });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toMatch(/already applied to/i);
+  });
+
   it('never re-applies to a vacancy that was applied to months ago', async () => {
     const { fullStackJob, fullStackProfile } = await seedMockJobs();
     const appliedAt = new Date(Date.now() - 100 * 86_400_000);
