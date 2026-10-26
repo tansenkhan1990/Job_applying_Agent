@@ -63,18 +63,32 @@ async function parseDocx(buffer: Buffer): Promise<ParsedDocument> {
   };
 }
 
+function parseText(buffer: Buffer): ParsedDocument {
+  const decoded = buffer.toString('utf8').replace(/^\uFEFF/, '');
+  const text = normalizeWhitespace(decoded);
+  return {
+    text,
+    textPreview: text.slice(0, 600),
+    pageCount: 0,
+    wordCount: wordCount(text),
+    needsOcr: text.replace(/\s+/g, '').length < 20,
+    parsedWith: 'utf-8',
+  };
+}
+
 export async function parseDocument(buffer: Buffer, extension: string): Promise<ParsedDocument> {
   const ext = path.extname(`file${extension.toLowerCase()}`) || extension.toLowerCase();
   try {
     if (ext === '.pdf') return await parsePdf(buffer);
     if (ext === '.docx') return await parseDocx(buffer);
+    if (ext === '.txt') return parseText(buffer);
     throw new DocumentParseError(`Unsupported document type: ${extension}`, 'UNSUPPORTED_TYPE');
   } catch (error) {
     if (error instanceof DocumentParseError) throw error;
     const message = error instanceof Error ? error.message : 'Unknown parsing error';
     throw new DocumentParseError(
       message.slice(0, 300) || 'Document could not be parsed',
-      ext === '.pdf' ? 'PDF_PARSE_FAILED' : 'DOCX_PARSE_FAILED',
+      ext === '.pdf' ? 'PDF_PARSE_FAILED' : ext === '.docx' ? 'DOCX_PARSE_FAILED' : 'TEXT_PARSE_FAILED',
     );
   }
 }

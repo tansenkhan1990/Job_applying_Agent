@@ -14,7 +14,7 @@ export interface ScannedFile {
   oversized: boolean;
 }
 
-const ALLOWED_EXTENSIONS = new Set(['.pdf', '.docx']);
+const ALLOWED_EXTENSIONS = new Set(['.pdf', '.docx', '.txt']);
 const MAX_FILES = 300;
 const MAX_DEPTH = 4;
 

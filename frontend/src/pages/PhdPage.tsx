@@ -11,6 +11,10 @@ import type {
 } from '../api/types';
 import { deadlineCountdown, formatDate, titleCase } from '../lib/format';
 import {
+  buildPhdListQuery,
+  type PhdSort,
+} from '../lib/listQuery';
+import {
   Badge,
   Button,
   Card,
@@ -57,31 +61,30 @@ export function PhdPage() {
   const [deadlineWindow, setDeadlineWindow] = useState('');
   const [scoreBand, setScoreBand] = useState<ScoreBand>('');
   const [language, setLanguage] = useState('');
+  const [funded, setFunded] = useState('');
   const [savedOnly, setSavedOnly] = useState(false);
   const [unreviewedOnly, setUnreviewedOnly] = useState(false);
   const [letterFilter, setLetterFilter] = useState('all');
   const [sort, setSort] = useState('newest');
   const [page, setPage] = useState(1);
 
-  const params = new URLSearchParams({ page: String(page), limit: '20' });
-  if (search.trim()) params.set('q', search.trim());
-  if (topic.trim()) params.set('topic', topic.trim());
-  if (researchArea) params.set('researchArea', researchArea);
-  if (institution.trim()) params.set('institution', institution.trim());
-  if (country.trim()) params.set('country', country.trim());
-  if (deadlineGroup !== 'open') params.set('deadlineStatus', deadlineGroup);
-  if (deadlineWindow) params.set('deadlineWithinDays', deadlineWindow);
-  if (scoreBand === '80-100') params.set('minScore', '80');
-  if (scoreBand === '60-79') {
-    params.set('minScore', '60');
-    params.set('maxScore', '79');
-  }
-  if (scoreBand === 'below-60') params.set('maxScore', '59');
-  if (language) params.set('languageDecision', language);
-  if (savedOnly) params.set('saved', 'true');
-  if (unreviewedOnly) params.set('reviewed', 'false');
-  if (letterFilter !== 'all') params.set('hasCoverLetter', letterFilter);
-  params.set('sort', sort);
+  const params = buildPhdListQuery({
+    search,
+    topic,
+    researchArea,
+    institution,
+    country,
+    deadlineGroup,
+    deadlineWindow,
+    scoreBand,
+    language,
+    funded,
+    savedOnly,
+    unreviewedOnly,
+    letterFilter,
+    sort: sort as PhdSort,
+    page,
+  });
 
   const positions = useQuery<Paginated<PhdPosition>>({
     queryKey: ['phd-positions', params.toString()],
@@ -92,6 +95,12 @@ export function PhdPage() {
     queryKey: ['phd-sources'],
     queryFn: () => api<PhdSourceStatus[]>('/phd/sources'),
   });
+
+  const realPhdSourceEnabled = (sources.data ?? []).some(
+    (source) => !source.simulated && source.enabled && source.configured,
+  );
+  const onlySimulatedPhdSource =
+    !realPhdSourceEnabled && (sources.data ?? []).some((source) => source.simulated && source.enabled);
 
   const discover = useMutation({
     mutationFn: () => api<PhdDiscoveryResult>('/phd/search', { method: 'POST', body: {} }),
@@ -325,6 +334,20 @@ export function PhdPage() {
             </Select>
           </label>
           <label className="flex flex-col gap-1 text-[11px] text-slate-400">
+            Funding
+            <Select
+              value={funded}
+              onChange={(event) => {
+                setFunded(event.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">Any funding status</option>
+              <option value="true">Funding or salary stated</option>
+              <option value="false">Funding not stated</option>
+            </Select>
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-slate-400">
             Cover letter
             <Select
               value={letterFilter}
@@ -398,6 +421,7 @@ export function PhdPage() {
                 setDeadlineWindow('');
                 setScoreBand('');
                 setLanguage('');
+                setFunded('');
                 setSavedOnly(false);
                 setUnreviewedOnly(false);
                 setLetterFilter('all');
@@ -410,6 +434,15 @@ export function PhdPage() {
           </div>
         </form>
       </Card>
+
+      {onlySimulatedPhdSource ? (
+        <WarningNote>
+          <strong className="font-semibold">No real PhD source is configured.</strong> The positions
+          below are simulated fixtures for exercising the workflow, not real advertisements. Set{' '}
+          <code className="rounded bg-slate-950/50 px-1">PHD_FEED_URL</code> to a permitted academic
+          feed and enable it in sources to see live doctoral vacancies.
+        </WarningNote>
+      ) : null}
 
       {deadlineGroup === 'unknown' ? (
         <WarningNote>

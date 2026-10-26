@@ -11,6 +11,16 @@ export interface JobAgeAssessment {
 /** Postings this many calendar months old (or older) are excluded. */
 export const MAX_JOB_AGE_MONTHS = 3;
 
+/**
+ * The three-calendar-month window is a product rule, not a preference. Any stored or requested
+ * value is clamped so no endpoint can widen it.
+ */
+export function effectiveMaxAgeMonths(requested: number | null | undefined): number {
+  const value = Math.round(requested ?? MAX_JOB_AGE_MONTHS);
+  if (!Number.isFinite(value)) return MAX_JOB_AGE_MONTHS;
+  return Math.min(MAX_JOB_AGE_MONTHS, Math.max(1, value));
+}
+
 export function startOfUtcDay(date: Date): Date {
   return new Date(
     Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0),

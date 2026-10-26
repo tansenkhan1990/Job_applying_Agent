@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { JobModel } from '../models/Job.js';
 import { JobMatchModel } from '../models/JobMatch.js';
-import { ApplicationModel } from '../models/Application.js';
 import { CoverLetterModel } from '../models/CoverLetter.js';
 import { objectIdSchema, jobSearchSchema, matchRequestSchema, profileKindSchema } from '../schemas.js';
 import { paginationSchema, parsePagination, paginated } from '../utils/pagination.js';
@@ -25,7 +24,7 @@ import {
   setJobLetterPreferences,
 } from '../services/coverLetters/jobLetters.js';
 import { classifyLanguage } from '../services/jobs/language.js';
-import { assessJobAge, jobAgeCutoff } from '../services/jobs/age.js';
+import { assessJobAge, effectiveMaxAgeMonths, jobAgeCutoff } from '../services/jobs/age.js';
 import { getSettings } from '../services/settingsService.js';
 import { notFound } from '../utils/errors.js';
 import { serialize } from '../utils/serialize.js';
@@ -73,22 +72,6 @@ const CATEGORY_PATTERNS: Record<string, RegExp> = {
   software: /software engineer|software developer|application developer/i,
 };
 
-/** Latest application per job, so an applied vacancy is never re-prepared by mistake. */
-async function applicationsByJob(jobIds: unknown[]) {
-  const applications = await ApplicationModel.find({ job: { $in: jobIds } })
-    .select('job status appliedAt submission.attemptedAt')
-    .sort({ createdAt: -1 });
-  const byJob = new Map<string, (typeof applications)[number]>();
-  for (const application of applications) {
-    const key = String(application.job);
-    const current = byJob.get(key);
-    if (!current || (current.status !== 'SUBMITTED' && application.status === 'SUBMITTED')) {
-      byJob.set(key, application);
-    }
-  }
-  return byJob;
-}
-
 function buildJobList(
   jobs: Array<{
     _id: unknown;
@@ -99,15 +82,6 @@ function buildJobList(
     status?: string | null;
   }>,
   matches: unknown[],
-  applicationByJob: Map<
-    string,
-    {
-      _id: unknown;
-      status: string;
-      appliedAt?: Date | null;
-      submission?: { attemptedAt?: Date | null } | null;
-    }
-  >,
   maxAgeMonths: number,
 ) {
   const bestByJob = new Map<string, unknown>();
@@ -134,19 +108,11 @@ function buildJobList(
     data.eligibleAfter = age.eligibleAfter;
     data.ageCheckAt = age.ageCheckAt;
     data.ageReason = age.ageReason;
-    const application = applicationByJob.get(String(job._id));
     const best = bestByJob.get(String(job._id));
     return {
       ...data,
       descriptionPreview: (job.description ?? '').slice(0, 320),
       bestMatch: best ? serialize(best) : null,
-      application: application
-        ? {
-            id: String(application._id),
-            status: application.status,
-            appliedAt: application.appliedAt ?? application.submission?.attemptedAt ?? null,
-          }
-        : null,
     };
   });
 }
@@ -165,7 +131,7 @@ jobsRouter.get('/', async (req, res) => {
   const query = jobListQuery.parse(req.query);
   const pagination = parsePagination(query);
   const settings = await getSettings();
-  const maxAgeMonths = settings.search.maxAgeMonths;
+  const maxAgeMonths = effectiveMaxAgeMonths(settings.search.maxAgeMonths);
   const cutoff = jobAgeCutoff(maxAgeMonths);
 
   const filter: Record<string, unknown> = {};
@@ -292,7 +258,7 @@ jobsRouter.get('/', async (req, res) => {
     );
     return res.json(
       paginated(
-        buildJobList(jobs, matches, await applicationsByJob(jobIds), maxAgeMonths),
+        buildJobList(jobs, matches, maxAgeMonths),
         total,
         pagination,
       ),
@@ -312,7 +278,7 @@ jobsRouter.get('/', async (req, res) => {
 
   res.json(
     paginated(
-      buildJobList(jobs, matches, await applicationsByJob(jobIds), maxAgeMonths),
+      buildJobList(jobs, matches, maxAgeMonths),
       total,
       pagination,
     ),
@@ -333,7 +299,7 @@ jobsRouter.get('/:id', async (req, res) => {
     postedLocalDate: job.postedLocalDate,
     expiresAt: job.expiresAt,
     status: job.status,
-    months: settings.search.maxAgeMonths,
+    months: effectiveMaxAgeMonths(settings.search.maxAgeMonths),
   });
   const data = serialize<Record<string, unknown>>(job);
   data.ageEligibility = age.ageEligibility;
@@ -488,7 +454,7 @@ jobsRouter.post('/:id/age-check', async (req, res) => {
     postedLocalDate: job.postedLocalDate,
     expiresAt: job.expiresAt,
     status: job.status,
-    months: settings.search.maxAgeMonths,
+    months: effectiveMaxAgeMonths(settings.search.maxAgeMonths),
   });
   const updated = await JobModel.findByIdAndUpdate(
     id,

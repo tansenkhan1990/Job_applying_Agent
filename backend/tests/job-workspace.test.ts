@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { env } from '../src/config/env.js';
-import { ApplicationModel } from '../src/models/Application.js';
 import { CandidateProfileModel } from '../src/models/CandidateProfile.js';
 import { ChatSessionModel } from '../src/models/ChatSession.js';
 import { JobModel } from '../src/models/Job.js';
@@ -168,8 +167,6 @@ describe('standalone job cover letters', () => {
       .send({ profileId: String(profile!._id), instructions: 'More concise.' })
       .expect(201);
     expect(regenerated.body.letter.version).toBe(2);
-
-    expect(await ApplicationModel.countDocuments()).toBe(0);
   });
 
   it('offers all three CVs and letters and remembers the chosen pair per job', async () => {
@@ -459,5 +456,22 @@ describe('per-job AI chat', () => {
     expect(response.body.error.code).toBe('BAD_REQUEST');
     expect(response.body.error.message).toMatch(/model/i);
     expect(await ChatSessionModel.countDocuments()).toBe(0);
+  });
+});
+
+describe('dashboard summary', () => {
+  it('reports date-window job and PhD totals without application workflow data', async () => {
+    await seedFullStackJob();
+    await seedApprovedProfiles();
+
+    const summary = await request(app).get('/api/dashboard/summary').expect(200);
+    expect(summary.body.totals.eligibleByDate).toBe(1);
+    expect(summary.body.totals.savedJobs).toBe(0);
+    expect(summary.body.totals.openPhd).toBe(0);
+    expect(summary.body.ai.configured).toBe(false);
+    expect(summary.body.sourceFailures).toEqual([]);
+    expect(summary.body.recentRuns).toEqual([]);
+    expect(summary.body.applicationsByStatus).toBeUndefined();
+    expect(summary.body.topMatches === undefined || Array.isArray(summary.body.topMatches)).toBe(true);
   });
 });

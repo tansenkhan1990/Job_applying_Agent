@@ -259,6 +259,24 @@ export function PhdDetailPage() {
     onError: (error) => toast.error(errorMessage(error)),
   });
 
+  const verifyDeadline = useMutation({
+    mutationFn: () =>
+      api<{
+        verification: { status: 'available' | 'unavailable' | 'unknown'; evidence: string };
+        position: PhdPosition;
+      }>(`/phd/positions/${id}/verify`, { method: 'POST', body: {} }),
+    onSuccess: (result) => {
+      const verification = result.verification;
+      const message = `Deadline check (${verification.status}): ${verification.evidence}`;
+      if (verification.status === 'available') toast.success(message);
+      else if (verification.status === 'unavailable') toast.error(message);
+      else toast.info(message);
+      void queryClient.invalidateQueries({ queryKey: ['phd-position', id] });
+      void queryClient.invalidateQueries({ queryKey: ['phd-positions'] });
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+
   const generateLetter = useMutation({
     mutationFn: () =>
       api<{ letter: CoverLetterVersion }>(`/phd/positions/${id}/cover-letter`, {
@@ -393,6 +411,19 @@ export function PhdDetailPage() {
               loading={saveState.isPending}
             >
               {position.saved ? 'Saved ★' : 'Save position'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => verifyDeadline.mutate()}
+              loading={verifyDeadline.isPending}
+              disabled={position.simulated}
+              title={
+                position.simulated
+                  ? 'Simulated fixtures have no live source to verify'
+                  : 'Re-read this position from the configured source'
+              }
+            >
+              Verify deadline
             </Button>
             <Button variant="primary" onClick={() => evaluate.mutate()} loading={evaluate.isPending}>
               {matches.length ? 'Re-evaluate profiles' : 'Evaluate profiles'}

@@ -9,11 +9,6 @@ import { startScheduler } from './services/scheduler.js';
 import { backfillPhdMetadata } from './services/phd/metadata.js';
 
 async function main(): Promise<void> {
-  if (!env.APPROVAL_REQUIRED) {
-    logger.warn(
-      'APPROVAL_REQUIRED=false is ignored: this build always requires an explicit approval record before submission.',
-    );
-  }
   await connectDb();
   await ensureDefaultProfiles();
   await getSettings();

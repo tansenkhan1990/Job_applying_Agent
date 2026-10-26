@@ -9,11 +9,6 @@ const appSettingSchema = new Schema(
       acquiredAt: { type: Date, default: null },
       expiresAt: { type: Date, default: null },
     },
-    runner: {
-      id: { type: String, default: '' },
-      lastSeenAt: { type: Date, default: null },
-      version: { type: String, default: '' },
-    },
   },
   { timestamps: true },
 );

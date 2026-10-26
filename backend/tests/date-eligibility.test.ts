@@ -9,6 +9,8 @@ import {
   assessPhdDeadline,
   classifyPhdResearchArea,
 } from '../src/services/phd/metadata.js';
+import { AppSettingModel } from '../src/models/AppSetting.js';
+import { getSettings } from '../src/services/settingsService.js';
 import { seedJob } from './helpers.js';
 import type { JobSearchCriteria } from '../src/services/jobs/types.js';
 
@@ -317,5 +319,88 @@ describe('PhD deadline eligibility in the API', () => {
     expect(ids).toContain(String(ai._id));
     expect(ids).not.toContain(String(cyber._id));
     expect(closingSoon.body.items[0].researchAreaEvidence.length).toBeGreaterThan(0);
+  });
+});
+
+describe('PhD funding and language filters', () => {
+  it('filters by funding evidence and hides German-mandatory positions by default', async () => {
+    const deadline = new Date(Date.now() + 45 * day);
+    const funded = await seedPhd({
+      sourceJobId: 'phd-funded',
+      url: 'https://example.org/phd/funded',
+      title: 'Funded PhD in knowledge graphs',
+      funding: 'TV-L E13, 65%',
+      applicationDeadline: deadline,
+    });
+    const unfunded = await seedPhd({
+      sourceJobId: 'phd-unfunded',
+      url: 'https://example.org/phd/unfunded',
+      title: 'PhD in AI systems (funding not stated)',
+      applicationDeadline: deadline,
+    });
+    const germanOnly = await seedPhd({
+      sourceJobId: 'phd-german-required',
+      url: 'https://example.org/phd/german',
+      title: 'Doktorand im Bereich Software Engineering',
+      description:
+        'German language skills are mandatory. Deutschkenntnisse sind zwingend erforderlich. Master degree in computer science required.',
+      applicationDeadline: deadline,
+    });
+
+    const fundedOnly = await request(app)
+      .get('/api/phd/positions?limit=50&funded=true')
+      .expect(200);
+    const fundedIds = fundedOnly.body.items.map((item: { id: string }) => item.id);
+    expect(fundedIds).toContain(String(funded._id));
+    expect(fundedIds).not.toContain(String(unfunded._id));
+
+    const noFunding = await request(app)
+      .get('/api/phd/positions?limit=50&funded=false')
+      .expect(200);
+    const unfundedIds = noFunding.body.items.map((item: { id: string }) => item.id);
+    expect(unfundedIds).toContain(String(unfunded._id));
+    expect(unfundedIds).not.toContain(String(funded._id));
+
+    // Mandatory German is excluded from the default list even when the deadline is open.
+    const normal = await request(app).get('/api/phd/positions?limit=50').expect(200);
+    const normalIds = normal.body.items.map((item: { id: string }) => item.id);
+    expect(normalIds).toContain(String(funded._id));
+    expect(normalIds).not.toContain(String(germanOnly._id));
+
+    const explicit = await request(app)
+      .get('/api/phd/positions?limit=50&languageDecision=Excluded')
+      .expect(200);
+    expect(explicit.body.items.map((item: { id: string }) => item.id)).toEqual([
+      String(germanOnly._id),
+    ]);
+  });
+});
+
+describe('three-month cap cannot be widened', () => {
+  it('rejects a wider setting, clamps a stored wider value, and still hides old jobs', async () => {
+    const { recent, old } = await seedJobsForDateRules();
+    await getSettings(); // create the settings document with defaults
+    await AppSettingModel.updateOne(
+      { key: 'global' },
+      { $set: { 'value.search.maxAgeMonths': 12 } },
+    );
+
+    const migrated = await getSettings();
+    expect(migrated.search.maxAgeMonths).toBe(3);
+
+    const list = await request(app).get('/api/jobs?limit=50').expect(200);
+    const ids = list.body.items.map((item: { id: string }) => item.id);
+    expect(ids).toContain(String(recent._id));
+    expect(ids).not.toContain(String(old._id));
+
+    await request(app)
+      .patch('/api/settings')
+      .send({ search: { maxAgeMonths: 12 } })
+      .expect(400);
+    const accepted = await request(app)
+      .patch('/api/settings')
+      .send({ search: { maxAgeMonths: 3 } })
+      .expect(200);
+    expect(accepted.body.settings.search.maxAgeMonths).toBe(3);
   });
 });

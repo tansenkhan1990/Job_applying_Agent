@@ -58,14 +58,11 @@ const envSchema = z.object({
   DOCUMENTS_PATH: z.string().default(defaultDocumentsPath()),
   MAX_DOCUMENT_SIZE_MB: intFromEnv(10, 1, 50),
 
-  APPROVAL_REQUIRED: boolFromEnv(true),
-  // Shared secret used only by the local host browser runner. Empty disables the runner API.
-  BROWSER_RUNNER_TOKEN: z.string().default(''),
   FRONTEND_ORIGIN: z.string().default('http://localhost:5173'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   SCHEDULER_ENABLED: boolFromEnv(false),
-  ENABLE_MOCK_SOURCE: boolFromEnv(true),
-  ALLOW_MOCK_SUBMISSION: boolFromEnv(false),
+  // Simulated fixtures are opt-in so a normal run never presents sample data as a real listing.
+  ENABLE_MOCK_SOURCE: boolFromEnv(false),
 });
 
 const parsed = envSchema.safeParse(process.env);

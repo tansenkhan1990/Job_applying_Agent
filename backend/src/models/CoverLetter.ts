@@ -2,13 +2,11 @@ import mongoose, { Schema, model, type InferSchemaType, type Model } from 'mongo
 
 const coverLetterSchema = new Schema(
   {
-    // A letter belongs to either a job vacancy or a PhD position. Application-bound letters
-    // additionally link the application record.
+    // A letter belongs to either a job vacancy or a PhD position.
     job: { type: Schema.Types.ObjectId, ref: 'Job', default: null, index: true },
     phdPosition: { type: Schema.Types.ObjectId, ref: 'PhdPosition', default: null, index: true },
     letterType: { type: String, enum: ['job', 'phd'], default: 'job', index: true },
     profile: { type: Schema.Types.ObjectId, ref: 'CandidateProfile', required: true, index: true },
-    application: { type: Schema.Types.ObjectId, ref: 'Application', default: null, index: true },
     version: { type: Number, required: true, default: 1 },
     subjectLine: { type: String, default: '' },
     letterText: { type: String, required: true },
@@ -29,8 +27,9 @@ const coverLetterSchema = new Schema(
       unsupportedNumbers: { type: [String], default: [] },
       notes: { type: [String], default: [] },
     },
-    // Selected writing reference and its profile. `coverLetterDocument` is kept for older
-    // application-flow records; `referenceLetterDocument` is the explicit reference used.
+    // Selected writing reference and its profile. `referenceLetterDocument` is the explicit
+    // reference used for the latest generation; `coverLetterDocument` mirrors it for older
+    // records.
     coverLetterDocument: { type: Schema.Types.ObjectId, ref: 'Document', default: null },
     referenceLetterDocument: { type: Schema.Types.ObjectId, ref: 'Document', default: null },
     referenceProfile: { type: Schema.Types.ObjectId, ref: 'CandidateProfile', default: null },

@@ -15,37 +15,6 @@ export type WorkArrangement = (typeof WORK_ARRANGEMENTS)[number];
 export const SENIORITY_LEVELS = ['junior', 'mid', 'senior', 'lead'] as const;
 export type Seniority = (typeof SENIORITY_LEVELS)[number];
 
-export const APPLICATION_STATUSES = [
-  'DISCOVERED',
-  'MATCHED',
-  'READY_FOR_REVIEW',
-  'APPROVED',
-  'SUBMITTING',
-  'SUBMITTED',
-  'FAILED',
-  'NEEDS_MANUAL_ACTION',
-  'WITHDRAWN',
-] as const;
-export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
-
-export const WORKFLOW_STATUSES = [
-  'DISCOVERED',
-  'NEEDS_REVIEW',
-  'TOO_RECENT',
-  'EXPIRED',
-  'LANGUAGE_REVIEW',
-  'ELIGIBLE',
-  'READY_TO_APPLY',
-  'ASSISTANT_RUNNING',
-  'AWAITING_REVIEW',
-  'NEEDS_INPUT',
-  'SUBMITTED',
-  'SUBMISSION_FAILED',
-  'SKIPPED',
-  'APPLIED_MANUALLY',
-] as const;
-export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
-
 export interface ProfileSeed {
   kind: ProfileKind;
   name: string;
@@ -210,12 +179,6 @@ export interface AppSettings {
     intervalMinutes: number;
     runOnStartup: boolean;
   };
-  application: {
-    mode: 'approval_required' | 'prepare_only';
-    maxDailyApplications: number;
-    minScoreToPrepare: number;
-    allowMockSubmission: boolean;
-  };
   sources: Record<string, { enabled: boolean }>;
 }
 
@@ -263,12 +226,6 @@ export function defaultSettings(): AppSettings {
       enabled: false,
       intervalMinutes: 360,
       runOnStartup: false,
-    },
-    application: {
-      mode: 'approval_required',
-      maxDailyApplications: 5,
-      minScoreToPrepare: 80,
-      allowMockSubmission: env.ALLOW_MOCK_SUBMISSION,
     },
     sources: {
       arbeitnow: { enabled: true },

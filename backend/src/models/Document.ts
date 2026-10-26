@@ -5,7 +5,7 @@ const documentSchema = new Schema(
   {
     filename: { type: String, required: true },
     relativePath: { type: String, required: true, unique: true },
-    extension: { type: String, required: true, enum: ['.pdf', '.docx'] },
+    extension: { type: String, required: true, enum: ['.pdf', '.docx', '.txt'] },
     docType: {
       type: String,
       enum: ['cv', 'cover_letter', 'unknown'],

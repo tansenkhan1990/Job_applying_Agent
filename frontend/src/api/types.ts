@@ -1,16 +1,6 @@
 export type ProfileKind = 'full_stack' | 'ai_engineer' | 'devops_cloud';
 export type ProfileKindOrUnassigned = ProfileKind | 'unassigned';
 export type WorkArrangement = 'remote' | 'hybrid' | 'onsite' | 'unknown';
-export type ApplicationStatus =
-  | 'DISCOVERED'
-  | 'MATCHED'
-  | 'READY_FOR_REVIEW'
-  | 'APPROVED'
-  | 'SUBMITTING'
-  | 'SUBMITTED'
-  | 'FAILED'
-  | 'NEEDS_MANUAL_ACTION'
-  | 'WITHDRAWN';
 
 export interface Paginated<T> {
   items: T[];
@@ -48,12 +38,6 @@ export interface AppSettings {
     sources: Record<string, boolean>;
   };
   schedule: { enabled: boolean; intervalMinutes: number; runOnStartup: boolean };
-  application: {
-    mode: 'approval_required' | 'prepare_only';
-    maxDailyApplications: number;
-    minScoreToPrepare: number;
-    allowMockSubmission: boolean;
-  };
   sources: Record<string, { enabled: boolean }>;
 }
 
@@ -237,7 +221,6 @@ export interface JobMatch {
   promptInjectionDetected: boolean;
   recommendedCvDocument: string | null;
   recommendedCoverLetterDocument: string | null;
-  eligibleForPreparation: boolean;
   reviewRequired: boolean;
   model: string;
   promptVersion: string;
@@ -250,6 +233,7 @@ export interface Job {
   source: string;
   sourceJobId: string;
   sourceLabel: string;
+  simulated: boolean;
   url: string;
   canonicalUrl: string;
   applicationUrl: string;
@@ -296,11 +280,6 @@ export interface Job {
   reviewedAt: string | null;
   remoteEligibleFromGermany: boolean | null;
   bestMatch?: JobMatch | null;
-  application?: {
-    id: string;
-    status: ApplicationStatus;
-    appliedAt: string | null;
-  } | null;
   mergedSources: string[];
 }
 
@@ -540,138 +519,6 @@ export interface ChatSendResponse {
   sources: string[];
 }
 
-export type WorkflowStatus =
-  | 'DISCOVERED'
-  | 'NEEDS_REVIEW'
-  | 'TOO_RECENT'
-  | 'EXPIRED'
-  | 'LANGUAGE_REVIEW'
-  | 'ELIGIBLE'
-  | 'READY_TO_APPLY'
-  | 'ASSISTANT_RUNNING'
-  | 'AWAITING_REVIEW'
-  | 'NEEDS_INPUT'
-  | 'SUBMITTED'
-  | 'SUBMISSION_FAILED'
-  | 'SKIPPED'
-  | 'APPLIED_MANUALLY';
-
-export interface ApplicationWorkflow {
-  status: WorkflowStatus;
-  startedAt: string | null;
-  updatedAt: string | null;
-  completedAt: string | null;
-  startRequestedAt: string | null;
-  runnerId: string;
-  runnerSeenAt: string | null;
-  pauseRequested: boolean;
-  stopRequested: boolean;
-  fieldsDetected: number;
-  fieldsFilled: number;
-  filesUploaded: number;
-  unanswered: string[];
-  reviewFields: Array<{ label: string; reason: string; fieldType: string }>;
-  validationErrors: string[];
-  lastError: string;
-  pageUrl: string;
-  pageTitle: string;
-  events: Array<{
-    at: string;
-    type: string;
-    from?: string;
-    to?: string;
-    source?: string;
-    message: string;
-  }>;
-  confirmation: {
-    confirmedAt: string | null;
-    method: string;
-    evidence: string;
-    confirmationId: string;
-  };
-}
-
-export interface Application {
-  id: string;
-  job: Job | string;
-  profile: CandidateProfile | string;
-  match: JobMatch | string | null;
-  employer: string;
-  jobTitle: string;
-  jobUrl: string;
-  applicationUrl: string;
-  source: string;
-  status: ApplicationStatus;
-  version: number;
-  jobLocation: string;
-  workArrangement: string;
-  postedAt: string | null;
-  ageEligibility: 'Eligible' | 'Too Recent' | 'Unknown' | 'Expired';
-  eligibleAfter: string | null;
-  ageReason: string;
-  discoveredAt: string | null;
-  jobDescriptionSnapshot: string;
-  languageSnapshot: {
-    jobLanguage: string;
-    englishRequired: boolean | null;
-    germanRequired: boolean | null;
-    germanOptional: boolean | null;
-    languageDecision: 'Eligible' | 'Excluded' | 'Needs Review';
-    languageConfidence: number;
-    languageEvidence: string;
-    languageReason: string;
-  };
-  matchScore: number | null;
-  matchExplanation: string;
-  profileKind: string;
-  selectedCvFilename: string;
-  selectedCoverLetterFilename: string;
-  sourceCoverLetterFilename: string;
-  preparationStartedAt: string | null;
-  formFilledAt: string | null;
-  workflow: ApplicationWorkflow;
-  selectedCvDocument: DocumentMeta | string | null;
-  selectedCoverLetterDocument: DocumentMeta | string | null;
-  cvHash: string;
-  coverLetterHash: string;
-  currentLetter: CoverLetterVersion | string | null;
-  screeningQuestions: ScreeningQuestion[];
-  approval: {
-    approvedAt: string | null;
-    approvedBy: string;
-    applicationVersion: number | null;
-    cvHash: string;
-    coverLetterHash: string;
-    confirmedAnswersHash: string;
-    note: string;
-  };
-  submission: {
-    attemptedAt: string | null;
-    adapter: string;
-    confirmed: boolean;
-    confirmationId: string;
-    message: string;
-    evidence: string;
-    simulated: boolean;
-    manualInstructions: string;
-    attempts: number;
-    lastAttemptAt: string | null;
-  };
-  appliedAt: string | null;
-  statusHistory: Array<{ from?: string; to: ApplicationStatus; at: string; reason?: string }>;
-  notes: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ApplicationListResponse extends Paginated<Application> {}
-
-export interface PrepareResponse {
-  application: Application;
-  created: boolean;
-  warnings: string[];
-}
-
 export interface SearchRun {
   id: string;
   status: 'running' | 'completed' | 'failed';
@@ -711,27 +558,40 @@ export interface DiscoveryResult {
 }
 
 export interface DashboardSummary {
+  highMatchThreshold: number;
   totals: {
     totalJobs: number;
-    activeJobs: number;
-    relevant: number;
-    applications: number;
-    pendingApproval: number;
-    submitted: number;
-    failed: number;
-    manual: number;
-    eligibleByAge: number;
-    tooRecent: number;
+    eligibleByDate: number;
+    newJobs: number;
+    highMatchJobs: number;
     unknownPostingDate: number;
-    expiredByAge: number;
-    eligibleNotApplied: number;
-    preparedAwaitingReview: number;
-    assistantActive: number;
+    savedJobs: number;
+    openPhd: number;
+    phdDeadlineSoon: number;
+    phdUnknownDeadline: number;
+    savedPhd: number;
+    savedLetters: number;
+    approvedProfiles: number;
   };
-  applicationsByStatus: Record<string, number>;
-  topMatches: JobMatch[];
+  lastSuccessful: { jobs: string | null; phd: string | null };
+  sourceFailures: Array<{
+    kind: 'jobs' | 'phd';
+    source: string;
+    error: string;
+    runId: string;
+  }>;
+  topMatches: Array<{
+    id: string;
+    jobId: string;
+    jobTitle: string;
+    employer: string;
+    location: string;
+    score: number;
+    profileKind: string;
+    reviewRequired: boolean;
+  }>;
   recentRuns: SearchRun[];
-  ai: { configured: boolean };
+  ai: { configured: boolean; model: string };
 }
 
 export interface ProfileExtractionResponse {
@@ -744,34 +604,4 @@ export interface ProfileExtractionResponse {
 export interface VerifyResponse {
   verification: { status: 'available' | 'unavailable' | 'unknown'; evidence: string };
   job: Job;
-}
-
-export interface EligibilityResult {
-  eligible: boolean;
-  checkedAt: string;
-  ageEligibility: 'Eligible' | 'Too Recent' | 'Unknown' | 'Expired';
-  eligibleAfter: string | null;
-  ageReason: string;
-  blockers: Array<{ code: string; message: string }>;
-  warnings: string[];
-}
-
-export interface AssistantStatus {
-  configured: boolean;
-  online: boolean;
-  lastSeenAt: string | null;
-  runnerId: string;
-  instructions: string;
-}
-
-export interface AssistantSummary {
-  applicationId: string;
-  job: { id: string; title: string; employer: string } | null;
-  profile: { id: string; name: string } | null;
-  workflow: ApplicationWorkflow;
-  selectedDocuments: {
-    cv: string | null;
-    coverLetter: string | null;
-    letterVersion: number | null;
-  };
 }

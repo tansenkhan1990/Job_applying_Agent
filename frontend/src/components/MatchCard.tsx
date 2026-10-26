@@ -1,6 +1,6 @@
 import type { JobMatch } from '../api/types';
 import { titleCase } from '../lib/format';
-import { Badge, Button, Card, LanguageBadge, ScoreBadge, ScoreBar } from './ui';
+import { Badge, Card, LanguageBadge, ScoreBadge, ScoreBar } from './ui';
 
 const requirementTone = {
   met: 'success',
@@ -11,17 +11,12 @@ const requirementTone = {
 
 export function MatchCard({
   match,
-  onPrepare,
-  preparing = false,
   compact = false,
 }: {
   match: JobMatch;
-  onPrepare?: (profileId: string) => void;
-  preparing?: boolean;
   compact?: boolean;
 }) {
   const profile = typeof match.profile === 'string' ? null : match.profile;
-  const profileId = typeof match.profile === 'string' ? match.profile : match.profile.id;
   const profileLabel = profile?.label ?? titleCase(match.profileKind);
 
   return (
@@ -46,21 +41,7 @@ export function MatchCard({
           {match.reviewRequired ? <Badge tone="warning">Review required</Badge> : null}
         </span>
       }
-      action={
-        <div className="flex items-center gap-2">
-          <ScoreBadge score={match.score} />
-          {onPrepare ? (
-            <Button
-              size="sm"
-              variant={match.eligibleForPreparation ? 'primary' : 'secondary'}
-              onClick={() => onPrepare(profileId)}
-              loading={preparing}
-            >
-              Prepare
-            </Button>
-          ) : null}
-        </div>
-      }
+      action={<ScoreBadge score={match.score} />}
     >
       <div className="space-y-3">
         <ScoreBar score={match.score} />

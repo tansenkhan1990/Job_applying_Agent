@@ -497,6 +497,7 @@ export function normalizeListing(
     ...input,
     description,
     descriptionHtml: input.descriptionHtml,
+    simulated: input.simulated ?? input.source === 'mock',
     canonicalUrl: canonicalizeUrl(input.url),
     applicationUrl: safeHttpUrl(input.applicationUrl) || canonicalizeUrl(input.url),
     salaryMin: input.salaryMin ?? parseSalaryRange(input.salary).min,

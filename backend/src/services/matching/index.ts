@@ -216,13 +216,6 @@ export async function matchJob(jobId: string, options: MatchOptions = {}) {
     if (mandatoryUnknown.length > 0) score = Math.min(score, 75);
     if (assessment.requirements.some((item) => item.status === 'missing')) score = Math.min(score, 55);
 
-    const eligibleForPreparation =
-      score >= settings.application.minScoreToPrepare &&
-      reviewRequired === false &&
-      mandatoryUnknown.length === 0 &&
-      Boolean(profile.cvDocument) &&
-      profile.status === 'approved';
-
     const doc = await JobMatchModel.findOneAndUpdate(
       { job: job._id, profile: profile._id },
       {
@@ -254,7 +247,6 @@ export async function matchJob(jobId: string, options: MatchOptions = {}) {
           recommendedCvDocument: profile.cvDocument ?? null,
           recommendedCoverLetterDocument: profile.coverLetterDocument ?? null,
           recommendedProfileKind: profile.kind,
-          eligibleForPreparation,
           reviewRequired,
           model: ai ? model : 'deterministic',
           promptVersion: ai ? PROMPT_VERSIONS.match : 'deterministic-v1',

@@ -66,6 +66,48 @@ function mapItem(item: Record<string, unknown>): RawPhdListing | null {
   };
 }
 
+async function fetchFeedListings(maxPositions: number) {
+  if (!env.PHD_FEED_URL.trim()) return [];
+  const url = new URL(env.PHD_FEED_URL);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error('PHD_FEED_URL must use http or https.');
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'PersonalJobAgent/1.0 (local use)' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`PhD feed returned HTTP ${response.status}.`);
+    }
+    const payload = (await response.json()) as unknown;
+    const items = Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === 'object'
+        ? (
+            (payload as { positions?: unknown[]; items?: unknown[] }).positions ??
+            (payload as { items?: unknown[] }).items ??
+            []
+          )
+        : [];
+    const listings = items
+      .slice(0, maxPositions)
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+      .map(mapItem)
+      .filter((item): item is RawPhdListing => item !== null)
+      .map((item) => normalizePhdListing(item))
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    logger.info({ found: listings.length }, 'PhD feed fetched');
+    return listings;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const phdFeedAdapter: PhdSourceAdapter = {
   id: 'phd_feed',
   label: 'Configured PhD feed',
@@ -73,45 +115,9 @@ export const phdFeedAdapter: PhdSourceAdapter = {
     'Reads a permitted JSON feed configured with PHD_FEED_URL. No scraping, no pagination bypass. Disabled until configured.',
   simulated: false,
   isConfigured: () => Boolean(env.PHD_FEED_URL.trim()),
-  async searchPositions({ maxPositions }) {
-    if (!phdFeedAdapter.isConfigured()) return [];
-    const url = new URL(env.PHD_FEED_URL);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-      throw new Error('PHD_FEED_URL must use http or https.');
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const response = await fetch(url, {
-        headers: { Accept: 'application/json', 'User-Agent': 'PersonalJobAgent/1.0 (local use)' },
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new Error(`PhD feed returned HTTP ${response.status}.`);
-      }
-      const payload = (await response.json()) as unknown;
-      const items = Array.isArray(payload)
-        ? payload
-        : payload && typeof payload === 'object'
-          ? (
-              (payload as { positions?: unknown[]; items?: unknown[] }).positions ??
-              (payload as { items?: unknown[] }).items ??
-              []
-            )
-          : [];
-      const listings = items
-        .slice(0, maxPositions)
-        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
-        .map(mapItem)
-        .filter((item): item is RawPhdListing => item !== null)
-        .map((item) => normalizePhdListing(item))
-        .filter((item): item is NonNullable<typeof item> => item !== null);
-
-      logger.info({ found: listings.length }, 'PhD feed fetched');
-      return listings;
-    } finally {
-      clearTimeout(timer);
-    }
+  searchPositions: ({ maxPositions }) => fetchFeedListings(maxPositions),
+  async getPosition(sourceJobId) {
+    const listings = await fetchFeedListings(500);
+    return listings.find((listing) => listing.sourceJobId === sourceJobId) ?? null;
   },
 };

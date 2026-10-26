@@ -4,7 +4,7 @@ import { createApp } from '../src/app.js';
 import { env } from '../src/config/env.js';
 import { normalizeListing } from '../src/services/jobs/normalize.js';
 import { applyDeterministicFilters } from '../src/services/jobs/filters.js';
-import { assertNavigableApplicationUrl, isSafeRemoteUrl } from '../src/utils/urlSafety.js';
+import { isSafeRemoteUrl } from '../src/utils/urlSafety.js';
 import { verifyJobAvailability } from '../src/services/jobs/verify.js';
 import { JobModel } from '../src/models/Job.js';
 import type { JobSearchCriteria } from '../src/services/jobs/types.js';
@@ -51,26 +51,6 @@ function listing(overrides: Record<string, unknown> = {}) {
 }
 
 describe('application URL safety', () => {
-  it('only accepts absolute http(s) pages', () => {
-    expect(assertNavigableApplicationUrl('https://example.com/apply').hostname).toBe('example.com');
-    expect(assertNavigableApplicationUrl('http://example.com/apply').protocol).toBe('http:');
-    expect(() => assertNavigableApplicationUrl('javascript:alert(1)')).toThrow(/non-http/i);
-    expect(() => assertNavigableApplicationUrl('file:///etc/passwd')).toThrow(/non-http/i);
-    expect(() => assertNavigableApplicationUrl('not a url')).toThrow(/valid absolute/i);
-    expect(() => assertNavigableApplicationUrl('https://user:pass@example.com/apply')).toThrow(
-      /credentials/i,
-    );
-  });
-
-  it('blocks loopback and private targets unless local testing is explicitly enabled', () => {
-    expect(() => assertNavigableApplicationUrl('http://127.0.0.1:8080/apply')).toThrow(/private/i);
-    expect(() => assertNavigableApplicationUrl('http://localhost:8080/apply')).toThrow(/private/i);
-    expect(() => assertNavigableApplicationUrl('http://192.168.1.10/apply')).toThrow(/private/i);
-    expect(
-      assertNavigableApplicationUrl('http://127.0.0.1:8080/apply', { allowLocal: true }).port,
-    ).toBe('8080');
-  });
-
   it('discards unsafe application URLs during normalization', () => {
     const fallback = listing({ applicationUrl: 'javascript:alert(1)' });
     expect(fallback.applicationUrl).toBe('https://jobs.example.com/roles/42');

@@ -1,5 +1,5 @@
 import type { ProfileKind, SearchCriteria, Seniority, WorkArrangement } from '../../config/defaults.js';
-import type { AgeEligibility } from './age.js';
+import { effectiveMaxAgeMonths, type AgeEligibility } from './age.js';
 
 export type LanguageRequirement =
   | 'english_ok'
@@ -15,6 +15,8 @@ export interface JobListing {
   source: string;
   sourceJobId: string;
   sourceLabel: string;
+  /** True only for local fixtures; such rows are labelled in the UI and never called live. */
+  simulated?: boolean;
   url: string;
   canonicalUrl: string;
   applicationUrl: string;
@@ -115,7 +117,7 @@ export function criteriaFromSettings(
     excludeUnpaid: search.excludeUnpaid,
     excludeGermanRequired: search.excludeGermanRequired,
     freshnessDays: search.freshnessDays,
-    maxAgeMonths: search.maxAgeMonths,
+    maxAgeMonths: effectiveMaxAgeMonths(search.maxAgeMonths),
     maxJobs: search.maxJobsPerRun,
     ...overrides,
   };

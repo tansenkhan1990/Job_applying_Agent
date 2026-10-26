@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { api, apiBase, errorMessage } from '../api/client';
 import type {
   CandidateProfile,
@@ -9,7 +9,6 @@ import type {
   JobDetailResponse,
   JobMatch,
   LetterOptions,
-  PrepareResponse,
   VerifyResponse,
 } from '../api/types';
 import { formatDate, scoreTone, statusTone, titleCase } from '../lib/format';
@@ -33,10 +32,8 @@ import {
 
 export function JobDetailPage() {
   const { id = '' } = useParams();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const [profileId, setProfileId] = useState('');
   const [verification, setVerification] = useState<VerifyResponse['verification'] | null>(null);
   const [letterProfileId, setLetterProfileId] = useState('');
   const [letterReferenceId, setLetterReferenceId] = useState('');
@@ -164,21 +161,6 @@ export function JobDetailPage() {
     onError: (error) => toast.error(errorMessage(error)),
   });
 
-  const prepare = useMutation({
-    mutationFn: (chosenProfileId: string) =>
-      api<PrepareResponse>('/applications/prepare', {
-        method: 'POST',
-        body: { jobId: id, profileId: chosenProfileId },
-      }),
-    onSuccess: (result) => {
-      for (const warning of result.warnings) toast.info(warning);
-      toast.success(result.created ? 'Application prepared for review.' : 'Existing prepared application opened.');
-      void queryClient.invalidateQueries({ queryKey: ['applications'] });
-      navigate(`/applications/${result.application.id}`);
-    },
-    onError: (error) => toast.error(errorMessage(error)),
-  });
-
   const letterVersions = letters.data ?? [];
   const activeLetter =
     letterVersions.find((letter) => letter.id === selectedLetterId) ?? letterVersions[0] ?? null;
@@ -208,20 +190,14 @@ export function JobDetailPage() {
 
   const { job, matches } = detail.data;
   const sortedMatches = [...matches].sort((a, b) => b.score - a.score);
-  const approvedProfiles = (profiles.data ?? []).filter((profile) => profile.status === 'approved');
-  const approvedProfileIds = new Set(approvedProfiles.map((profile) => profile.id));
+  const approvedProfileIds = new Set(
+    (profiles.data ?? []).filter((profile) => profile.status === 'approved').map((profile) => profile.id),
+  );
   const topApprovedMatch = sortedMatches.find(
     (match) => typeof match.profile !== 'string' && approvedProfileIds.has(match.profile.id),
   );
   const topProfileId =
     topApprovedMatch && typeof topApprovedMatch.profile !== 'string' ? topApprovedMatch.profile.id : '';
-  // Never preselect a draft profile: the select only lists approved profiles, so a draft
-  // id would otherwise be submitted while the UI appears to show an approved one.
-  const chosen =
-    (profileId && approvedProfileIds.has(profileId) ? profileId : '') ||
-    topProfileId ||
-    approvedProfiles[0]?.id ||
-    '';
 
   const letterProfiles = profiles.data ?? [];
   const optionProfiles = letterOptions.data?.profiles ?? [];
@@ -256,6 +232,7 @@ export function JobDetailPage() {
             <span>{job.employer}</span>
             {job.location ? <span>· {job.location}</span> : null}
             <Badge tone="info">{job.sourceLabel || job.source}</Badge>
+            {job.simulated ? <Badge tone="warning">Simulated fixture</Badge> : null}
             <Badge tone={statusTone(job.status)}>{job.status}</Badge>
             {job.workArrangement !== 'unknown' ? (
               <Badge tone="neutral">{titleCase(job.workArrangement)}</Badge>
@@ -580,71 +557,27 @@ export function JobDetailPage() {
             )}
           </Card>
 
-          <Card title="Prepare an application" subtitle="You can prepare with any approved profile">
-            {approvedProfiles.length === 0 ? (
-              <EmptyState
-                title="No approved profiles"
-                description="Approve a candidate profile before preparing an application."
-                action={
-                  <Link to="/profiles">
-                    <Button size="sm" variant="primary">
-                      Go to profiles
-                    </Button>
-                  </Link>
-                }
-              />
-            ) : (
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <label className="flex-1 text-xs text-slate-300">
-                  Career profile
-                  <Select
-                    className="mt-1"
-                    value={chosen}
-                    onChange={(event) => setProfileId(event.target.value)}
-                  >
-                    {approvedProfiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.label}
-                        {profile.cvDocumentInfo ? ` — ${profile.cvDocumentInfo.filename}` : ' (no CV mapped)'}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-                <Button
-                  variant="primary"
-                  disabled={
-                    !chosen ||
-                    job.status !== 'active' ||
-                    job.languageDecision === 'Excluded' ||
-                    job.ageEligibility !== 'Eligible'
-                  }
-                  loading={prepare.isPending}
-                  onClick={() => prepare.mutate(chosen)}
-                >
-                  Prepare application
-                </Button>
-              </div>
-            )}
+          <Card title="Eligibility notes" subtitle="Why this vacancy is or is not in the normal results">
             {job.ageEligibility !== 'Eligible' ? (
               <WarningNote>
-                Posting-age check: <strong>{job.ageEligibility}</strong>. {job.ageReason} The application
-                assistant only accepts postings that are less than three calendar months old.
+                Posting-age check: <strong>{job.ageEligibility}</strong>. {job.ageReason} Only postings
+                inside the three-calendar-month window appear in the normal job results.
               </WarningNote>
             ) : null}
             {job.languageDecision === 'Excluded' ? (
               <WarningNote>
-                This posting mandates German, so it is excluded from the English-first queue. Change the
+                This posting mandates German, so it is hidden from the English-first results. Change the
                 language classification only if the original listing says otherwise.
               </WarningNote>
             ) : job.languageDecision === 'Needs Review' ? (
               <WarningNote>
                 The language requirement is ambiguous. Read the original listing and verify English is
-                acceptable before starting an application.
+                acceptable before you invest time in an application.
               </WarningNote>
             ) : null}
             <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-              Preparation generates a tailored cover letter, extracts screening questions and creates an
-              approval record request. Nothing is submitted until you approve and explicitly submit.
+              Location, working arrangement, language and posting date are hard filters. A high match score
+              never overrides them. This application never submits anything on your behalf.
             </p>
           </Card>
         </div>
@@ -823,12 +756,7 @@ export function JobDetailPage() {
           />
         ) : (
           sortedMatches.map((match) => (
-            <MatchCard
-              key={match.id}
-              match={match}
-              preparing={prepare.isPending}
-              onPrepare={(matchedProfileId) => prepare.mutate(matchedProfileId)}
-            />
+            <MatchCard key={match.id} match={match} />
           ))
         )}
       </div>

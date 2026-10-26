@@ -8,11 +8,8 @@ const NAV = [
   { to: '/', label: 'Overview', icon: 'grid' },
   { to: '/jobs', label: 'Jobs', icon: 'briefcase' },
   { to: '/phd', label: 'PhD Opportunities', icon: 'graduation' },
-  { to: '/queue', label: 'Apply queue', icon: 'play' },
-  { to: '/assistant', label: 'Assistant', icon: 'play' },
   { to: '/profiles', label: 'Profiles', icon: 'users' },
   { to: '/documents', label: 'Documents', icon: 'file' },
-  { to: '/applications', label: 'Applications', icon: 'check' },
   { to: '/settings', label: 'Settings', icon: 'cog' },
 ] as const;
 
@@ -63,19 +60,6 @@ function Icon({ name }: { name: (typeof NAV)[number]['icon'] }) {
         <svg {...common}>
           <path d="M6 3.5h7l5 5V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z" />
           <path d="M13 3.5V9h5M8 13h7M8 16.5h5" />
-        </svg>
-      );
-    case 'check':
-      return (
-        <svg {...common}>
-          <path d="M8 3.5h8v3H8zM6 5.5H4.5v15h15v-15H18" />
-          <path d="m8 13 2.5 2.5L16 10" />
-        </svg>
-      );
-    case 'play':
-      return (
-        <svg {...common}>
-          <path d="M8 5.2 19 12 8 18.8Z" />
         </svg>
       );
     case 'cog':
@@ -150,8 +134,7 @@ export function Layout() {
             {aiLabel}
           </p>
           <p className="mt-2">
-            Applications require explicit approval. Automated submission is not claimed for unsupported
-            sites.
+            This is a discovery and drafting tool. It never submits an application for you.
           </p>
         </div>
       </aside>

@@ -8,10 +8,11 @@ import { paginationSchema, parsePagination, paginated } from '../utils/paginatio
 import { serialize } from '../utils/serialize.js';
 import { notFound } from '../utils/errors.js';
 import { runPhdDiscovery } from '../services/phd/discovery.js';
-import { phdSourceStatuses } from '../services/phd/adapters/index.js';
+import { phdAdapters, phdSourceStatuses } from '../services/phd/adapters/index.js';
 import { ensureDeterministicPhdMatches, matchPhdPosition } from '../services/phd/matching.js';
 import { assessPhdDeadline } from '../services/phd/metadata.js';
 import { startOfUtcDay } from '../services/jobs/age.js';
+import { getSettings } from '../services/settingsService.js';
 import {
   editPhdLetter,
   generatePhdLetter,
@@ -45,6 +46,9 @@ const listQuery = paginationSchema.extend({
   researchArea: z.enum(['ai', 'cybersecurity', 'software_engineering', 'other']).optional(),
   institution: z.string().max(160).optional(),
   deadlineStatus: z.enum(['open', 'expired', 'unknown', 'closed']).optional(),
+  // "true" keeps only positions that state funding or a salary; "false" keeps only those
+  // that do not, so missing funding information is never silently presented as funded.
+  funded: z.enum(['true', 'false']).optional(),
   deadlineWithinDays: z.coerce.number().int().min(1).max(365).optional(),
   sort: z.enum(['newest', 'oldest', 'score', 'deadline', 'institution', 'title']).default('newest'),
 });
@@ -102,11 +106,24 @@ phdRouter.get('/sources', async (_req, res) => {
 phdRouter.get('/positions', async (req, res) => {
   const query = listQuery.parse(req.query);
   const pagination = parsePagination(query);
+  const settings = await getSettings();
   const filter: Record<string, unknown> = {};
   const now = new Date();
   const todayStart = startOfUtcDay(now);
   if (query.country) filter.country = { $regex: query.country, $options: 'i' };
-  if (query.languageDecision) filter.languageDecision = query.languageDecision;
+  if (query.languageDecision) {
+    filter.languageDecision = query.languageDecision;
+  } else if (settings.phd.excludeGermanRequired) {
+    // English-first default: German-mandatory advertisements are hidden unless the caller
+    // explicitly asks for them. Unclear language requirements stay, flagged for review.
+    filter.languageDecision = { $ne: 'Excluded' };
+  }
+  if (query.funded === 'true') {
+    filter.$and = [{ $or: [{ funding: { $ne: '' } }, { salary: { $ne: '' } }] }];
+  } else if (query.funded === 'false') {
+    filter.funding = { $in: ['', null] };
+    filter.salary = { $in: ['', null] };
+  }
   if (query.researchArea) filter.researchArea = query.researchArea;
   if (query.institution) {
     filter.institution = { $regex: query.institution, $options: 'i' };
@@ -164,6 +181,7 @@ phdRouter.get('/positions', async (req, res) => {
   }
   if (query.q) {
     filter.$and = [
+      ...((filter.$and as unknown[]) ?? []),
       {
         $or: [
           { title: { $regex: query.q, $options: 'i' } },
@@ -285,6 +303,88 @@ const phdMatchSchema = z
   })
   .strict()
   .default({});
+
+phdRouter.post('/positions/:id/verify', async (req, res) => {
+  const id = objectIdSchema.parse(req.params.id);
+  const position = await PhdPositionModel.findById(id);
+  if (!position) throw notFound('PhD position');
+
+  const adapter = phdAdapters.find((item) => item.id === position.source);
+  let verification: { status: 'available' | 'unavailable' | 'unknown'; evidence: string };
+
+  if (adapter?.simulated) {
+    verification = {
+      status: 'unknown',
+      evidence: 'This is a simulated fixture; there is no live source whose deadline can be verified.',
+    };
+  } else if (!adapter?.getPosition) {
+    verification = {
+      status: 'unknown',
+      evidence: `Source "${position.source}" has no deadline verifier. Check the official link manually.`,
+    };
+  } else {
+    try {
+      const fresh = await adapter.getPosition(position.sourceJobId);
+      if (!fresh) {
+        // Absence from a feed can mean pagination or a source change. Never turn that into
+        // an automatic "closed" verdict.
+        verification = {
+          status: 'unknown',
+          evidence:
+            'The position is no longer present in the configured feed. It was not marked closed automatically; check the official link.',
+        };
+      } else {
+        const deadline = assessPhdDeadline({
+          deadline: fresh.applicationDeadline,
+          timezone: fresh.deadlineTimezone,
+          hasTime: fresh.deadlineHasTime,
+          closed: fresh.status === 'closed',
+          rolling: fresh.rollingAdmissions,
+        });
+        const nextStatus =
+          fresh.status === 'closed'
+            ? 'closed'
+            : deadline.status === 'expired'
+              ? 'expired'
+              : 'active';
+        await PhdPositionModel.updateOne(
+          { _id: position._id },
+          {
+            $set: {
+              applicationDeadline: fresh.applicationDeadline,
+              deadlineTimezone: fresh.deadlineTimezone,
+              deadlineHasTime: fresh.deadlineHasTime,
+              rollingAdmissions: fresh.rollingAdmissions,
+              deadlineStatus: deadline.status,
+              deadlineNote: deadline.note,
+              lastVerifiedAt: new Date(),
+              lastSeenAt: new Date(),
+              status: nextStatus,
+              statusNote:
+                nextStatus === 'closed'
+                  ? 'The official source states that the position is closed or has been filled.'
+                  : nextStatus === 'expired'
+                    ? deadline.note
+                    : '',
+            },
+          },
+        );
+        verification = {
+          status: nextStatus === 'active' ? 'available' : 'unavailable',
+          evidence: deadline.note,
+        };
+      }
+    } catch (error) {
+      verification = {
+        status: 'unknown',
+        evidence: `Verification failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      };
+    }
+  }
+
+  const updated = await PhdPositionModel.findById(position._id);
+  res.json({ verification, position: serialize(updated) });
+});
 
 phdRouter.post('/positions/:id/match', async (req, res) => {
   const id = objectIdSchema.parse(req.params.id);

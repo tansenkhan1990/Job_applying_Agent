@@ -310,7 +310,6 @@ export async function saveCoverLetterVersion(input: {
   phdPositionId?: string | null;
   letterType?: 'job' | 'phd';
   profile: ProfileDoc;
-  applicationId?: string;
   letter: GeneratedLetter;
   version: number;
   referenceLetterDocumentId?: string | null;
@@ -329,7 +328,6 @@ export async function saveCoverLetterVersion(input: {
     phdPosition: input.phdPositionId ?? null,
     letterType: input.letterType ?? 'job',
     profile: input.profile._id,
-    application: input.applicationId ?? null,
     version: input.version,
     subjectLine: input.letter.subjectLine,
     letterText: input.letter.letterText,

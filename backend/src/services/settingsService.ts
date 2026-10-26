@@ -1,5 +1,6 @@
 import { AppSettingModel } from '../models/AppSetting.js';
 import { defaultSettings, type AppSettings } from '../config/defaults.js';
+import { MAX_JOB_AGE_MONTHS } from './jobs/age.js';
 import { settingsSchema, type SettingsPatch } from '../schemas.js';
 import { env } from '../config/env.js';
 
@@ -60,6 +61,11 @@ export async function getSettings(): Promise<AppSettings> {
       defaultSettings(),
       isPlainObject(normalized.value) ? normalized.value : {},
     );
+    // A stored value above the hard limit is the most likely reason validation failed;
+    // clamp it before retrying so unrelated settings are not discarded.
+    if (isPlainObject(fallback.search)) {
+      fallback.search.maxAgeMonths = MAX_JOB_AGE_MONTHS;
+    }
     const revalidated = settingsSchema.safeParse(fallback);
     const value = revalidated.success ? revalidated.data : defaultSettings();
     await AppSettingModel.updateOne({ key: 'global' }, { $set: { value } });
@@ -74,6 +80,14 @@ export async function getSettings(): Promise<AppSettings> {
  * settings are untouched.
  */
 function migrateSettings(value: AppSettings, hadLegacyAgeValue: boolean): AppSettings {
+  // The three-month window is mandatory, so an older stored preference cannot widen it.
+  if (value.search.maxAgeMonths !== MAX_JOB_AGE_MONTHS) {
+    value.search.maxAgeMonths = MAX_JOB_AGE_MONTHS;
+    void AppSettingModel.updateOne(
+      { key: 'global' },
+      { $set: { 'value.search.maxAgeMonths': MAX_JOB_AGE_MONTHS } },
+    ).catch(() => undefined);
+  }
   if (hadLegacyAgeValue) {
     void AppSettingModel.updateOne(
       { key: 'global' },

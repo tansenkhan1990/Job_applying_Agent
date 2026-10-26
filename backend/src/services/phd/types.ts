@@ -57,6 +57,8 @@ export interface PhdSourceAdapter {
   simulated: boolean;
   isConfigured(): boolean;
   searchPositions(criteria: { maxPositions: number }): Promise<PhdListing[]>;
+  /** Optional: re-read one position from the source so its deadline can be re-verified. */
+  getPosition?(sourceJobId: string): Promise<PhdListing | null>;
 }
 
 export interface PhdDiscoveryResult {

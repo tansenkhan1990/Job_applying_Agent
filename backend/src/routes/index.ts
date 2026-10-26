@@ -7,10 +7,8 @@ import { documentsRouter } from './documents.js';
 import { jobsRouter } from './jobs.js';
 import { phdRouter } from './phd.js';
 import { matchesRouter } from './matches.js';
-import { applicationsRouter } from './applications.js';
 import { searchRunsRouter } from './searchRuns.js';
 import { dashboardRouter } from './dashboard.js';
-import { automationRouter } from './automation.js';
 
 export const apiRouter = Router();
 
@@ -22,7 +20,5 @@ apiRouter.use('/documents', documentsRouter);
 apiRouter.use('/jobs', jobsRouter);
 apiRouter.use('/phd', phdRouter);
 apiRouter.use('/matches', matchesRouter);
-apiRouter.use('/applications', applicationsRouter);
 apiRouter.use('/search-runs', searchRunsRouter);
 apiRouter.use('/dashboard', dashboardRouter);
-apiRouter.use('/automation', automationRouter);

@@ -16,6 +16,7 @@ function jobFields(listing: JobListing) {
     source: listing.source,
     sourceJobId: listing.sourceJobId,
     sourceLabel: listing.sourceLabel,
+    simulated: listing.simulated ?? false,
     url: listing.url,
     canonicalUrl: listing.canonicalUrl,
     applicationUrl: listing.applicationUrl,

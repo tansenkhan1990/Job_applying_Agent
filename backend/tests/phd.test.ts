@@ -3,7 +3,6 @@ import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { PhdPositionModel } from '../src/models/PhdPosition.js';
 import { PhdMatchModel } from '../src/models/PhdMatch.js';
-import { ApplicationModel } from '../src/models/Application.js';
 import { CandidateProfileModel } from '../src/models/CandidateProfile.js';
 import { ChatSessionModel } from '../src/models/ChatSession.js';
 import { env } from '../src/config/env.js';
@@ -192,7 +191,6 @@ describe('PhD matching and letters', () => {
     expect(regenerated.body.letter.version).toBe(2);
 
     // Generating a letter is never an application side effect.
-    expect(await ApplicationModel.countDocuments()).toBe(0);
   });
 
   it('backfills a deterministic score for every listed position without a manual step', async () => {
@@ -307,5 +305,112 @@ describe('PhD matching and letters', () => {
     ).rejects.toThrow(/Chat session/);
     expect(await ChatSessionModel.countDocuments({ phdPosition: other!._id })).toBe(1);
     expect(otherFirst.session.messages).toHaveLength(2);
+  });
+});
+
+describe('PhD deadline verification', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    env.PHD_FEED_URL = '';
+  });
+
+  async function seedFeedPosition() {
+    return PhdPositionModel.create({
+      source: 'phd_feed',
+      sourceJobId: 'feed-verify-1',
+      sourceLabel: 'Configured PhD feed',
+      simulated: false,
+      url: 'https://example.org/phd/verify-1',
+      canonicalUrl: 'https://example.org/phd/verify-1',
+      institution: 'Example University',
+      title: 'Doctoral Researcher in Knowledge Graphs',
+      description: 'English is the working language. Master degree in computer science.',
+      country: 'Germany',
+      location: 'Berlin, Germany',
+      researchArea: 'ai',
+      postedAt: new Date(Date.now() - 100 * 86_400_000),
+      applicationDeadline: new Date(Date.now() + 30 * 86_400_000),
+      deadlineHasTime: false,
+      deadlineStatus: 'open',
+      status: 'active',
+      fingerprint: 'feed-verify-fingerprint',
+      contentHash: 'feed-verify-hash',
+    });
+  }
+
+  function feedResponse(items: unknown[]) {
+    return new Response(JSON.stringify({ positions: items }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  it('closes a position when the source reports it filled, and removes it from open results', async () => {
+    env.PHD_FEED_URL = 'https://example.org/phd-feed.json';
+    const position = await seedFeedPosition();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        feedResponse([
+          {
+            id: 'feed-verify-1',
+            title: 'Doctoral Researcher in Knowledge Graphs',
+            institution: 'Example University',
+            url: 'https://example.org/phd/verify-1',
+            country: 'Germany',
+            description: 'English is the working language. Master degree in computer science.',
+            applicationDeadline: '2027-01-15',
+            status: 'filled',
+          },
+        ]),
+      ),
+    );
+
+    const response = await request(app)
+      .post(`/api/phd/positions/${String(position._id)}/verify`)
+      .send({})
+      .expect(200);
+    expect(response.body.verification.status).toBe('unavailable');
+    expect(response.body.position.status).toBe('closed');
+    expect(response.body.position.lastVerifiedAt).toBeTruthy();
+    expect(response.body.position.deadlineHasTime).toBe(false);
+
+    const open = await request(app).get('/api/phd/positions?limit=50').expect(200);
+    expect(open.body.items.map((item: { id: string }) => item.id)).not.toContain(
+      String(position._id),
+    );
+  });
+
+  it('does not mark a position closed when it is merely absent from the current feed', async () => {
+    env.PHD_FEED_URL = 'https://example.org/phd-feed.json';
+    const position = await seedFeedPosition();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(feedResponse([])));
+
+    const response = await request(app)
+      .post(`/api/phd/positions/${String(position._id)}/verify`)
+      .send({})
+      .expect(200);
+    expect(response.body.verification.status).toBe('unknown');
+    expect(response.body.verification.evidence).toMatch(/not marked closed automatically/i);
+    expect(response.body.position.status).toBe('active');
+
+    const stored = await PhdPositionModel.findById(position._id);
+    expect(stored?.status).toBe('active');
+    // A missing entry is not a verification: no timestamp is claimed and nothing is closed.
+    expect(stored?.lastVerifiedAt).toBeNull();
+  });
+
+  it('refuses to pretend a simulated fixture can be verified', async () => {
+    const position = await PhdPositionModel.findOne({ source: 'phd_mock' });
+    if (!position) {
+      await request(app).post('/api/phd/search').send({}).expect(201);
+    }
+    const simulated = await PhdPositionModel.findOne({ source: 'phd_mock' });
+    const response = await request(app)
+      .post(`/api/phd/positions/${String(simulated!._id)}/verify`)
+      .send({})
+      .expect(200);
+    expect(response.body.verification.status).toBe('unknown');
+    expect(response.body.verification.evidence).toMatch(/simulated fixture/i);
   });
 });

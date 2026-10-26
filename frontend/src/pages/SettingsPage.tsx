@@ -143,8 +143,6 @@ export function SettingsPage() {
   const update = (patch: Partial<AppSettings>) => setDraft({ ...draft, ...patch });
   const updateSearch = (patch: Partial<AppSettings['search']>) =>
     update({ search: { ...draft.search, ...patch } });
-  const updateApplication = (patch: Partial<AppSettings['application']>) =>
-    update({ application: { ...draft.application, ...patch } });
   const updateSchedule = (patch: Partial<AppSettings['schedule']>) =>
     update({ schedule: { ...draft.schedule, ...patch } });
   const updateAi = (patch: Partial<AppSettings['ai']>) => update({ ai: { ...draft.ai, ...patch } });
@@ -344,7 +342,7 @@ export function SettingsPage() {
                   onChange={(languages) => updateSearch({ languages })}
                 />
               </Field>
-              <Field label="Minimum relevance score" hint="Used for preparation and dashboard counts.">
+              <Field label="Minimum relevance score" hint="Threshold used by the overview's high-match counter.">
                 <Input
                   type="number"
                   min={0}
@@ -366,17 +364,9 @@ export function SettingsPage() {
               </Field>
               <Field
                 label="Maximum posting age (calendar months)"
-                hint="Jobs this many calendar months old or older are hidden from the dashboard and kept out of the application queue. Default: 3."
+                hint="Hard rule: professional jobs older than three calendar months never appear in normal results. The value is fixed and clamped by the backend."
               >
-                <Input
-                  type="number"
-                  min={1}
-                  max={24}
-                  value={draft.search.maxAgeMonths}
-                  onChange={(event) =>
-                    updateSearch({ maxAgeMonths: toNumber(event.target.value, 3) })
-                  }
-                />
+                <Input type="number" min={3} max={3} value={3} readOnly />
               </Field>
               <Field
                 label="Hard retention cap (days)"
@@ -504,8 +494,8 @@ export function SettingsPage() {
             <WarningNote>
               A vacancy is never excluded merely because it mentions German. The posting is filtered only when its
               text explicitly requires German; postings that say German is optional or not required are kept. Language
-              detection is heuristic, so review the badge on each job. The application queue additionally requires a
-              verified original posting date less than three calendar months old.
+              detection is heuristic, so review the badge on each job. Normal results additionally require a verified
+              original posting date inside the three-calendar-month window.
             </WarningNote>
           </div>
         </Card>
@@ -538,58 +528,6 @@ export function SettingsPage() {
                 The worker container uses a persisted lock and SearchRun state so restarts do not create
                 overlapping runs.
               </p>
-            </div>
-          </Card>
-
-          <Card title="Application safety" subtitle="Approval is enforced by the backend">
-            <div className="space-y-3">
-              <Field label="Application mode">
-                <Select
-                  value={draft.application.mode}
-                  onChange={(event) =>
-                    updateApplication({
-                      mode: event.target.value as AppSettings['application']['mode'],
-                    })
-                  }
-                >
-                  <option value="approval_required">approval_required — prepare, review, approve, submit</option>
-                  <option value="prepare_only">prepare_only — never allow submission</option>
-                </Select>
-              </Field>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Minimum score to prepare">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={draft.application.minScoreToPrepare}
-                    onChange={(event) =>
-                      updateApplication({ minScoreToPrepare: toNumber(event.target.value, 80) })
-                    }
-                  />
-                </Field>
-                <Field label="Maximum submissions per day">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={draft.application.maxDailyApplications}
-                    onChange={(event) =>
-                      updateApplication({ maxDailyApplications: toNumber(event.target.value, 5) })
-                    }
-                  />
-                </Field>
-              </div>
-              <Toggle
-                checked={draft.application.allowMockSubmission}
-                onChange={(value) => updateApplication({ allowMockSubmission: value })}
-                label="Allow simulated submission for mock jobs"
-                hint="Only affects fictional mock-source vacancies. Real jobs always require the employer's form."
-              />
-              <WarningNote>
-                There is no unattended submission path for real employers in this build. The manual adapter is
-                honest about that and asks you to confirm after you complete the form yourself.
-              </WarningNote>
             </div>
           </Card>
 

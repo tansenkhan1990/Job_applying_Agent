@@ -5,6 +5,7 @@ import { JobModel } from '../src/models/Job.js';
 import { SearchRunModel } from '../src/models/SearchRun.js';
 import { mockAdapter } from '../src/services/jobs/adapters/mock.js';
 import { applyDeterministicFilters } from '../src/services/jobs/filters.js';
+import { normalizeListing } from '../src/services/jobs/normalize.js';
 import { deactivateIneligibleStoredJobs, runDiscovery } from '../src/services/jobs/discovery.js';
 import { upsertJobListings } from '../src/services/jobs/dedupe.js';
 import { getSettings } from '../src/services/settingsService.js';
@@ -351,5 +352,34 @@ describe('discovery runs', () => {
       mockAdapter.searchJobs = original;
     }
     expect(await JobModel.countDocuments()).toBe(before);
+  });
+});
+
+describe('simulated fixture labelling', () => {
+  it('marks mock listings as simulated and never marks live adapters', async () => {
+    const listings = await mockAdapter.searchJobs(baseCriteria);
+    expect(listings.length).toBeGreaterThan(0);
+    expect(listings.every((listing) => listing.simulated === true)).toBe(true);
+    expect(listings.every((listing) => listing.sourceLabel.includes('fictional'))).toBe(true);
+
+    const live = normalizeListing({
+      source: 'arbeitnow',
+      sourceJobId: 'live-1',
+      sourceLabel: 'Arbeitnow',
+      url: 'https://example.com/jobs/1',
+      employer: 'Example GmbH',
+      title: 'Backend Engineer',
+      location: 'Berlin',
+      remote: false,
+      workArrangement: 'onsite',
+      applicationUrl: 'https://example.com/jobs/1',
+      employmentType: 'full-time',
+      salary: '',
+      tags: [],
+      description: 'English is the working language.',
+      postedAt: new Date(),
+      expiresAt: null,
+    });
+    expect(live.simulated).toBe(false);
   });
 });

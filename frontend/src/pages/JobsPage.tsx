@@ -20,85 +20,33 @@ import {
   WarningNote,
 } from '../components/ui';
 import { useToast } from '../components/Toast';
-
-type ScoreBand = '' | '90-100' | '80-89' | '70-79' | 'below-70';
-type LanguageFilter = 'non_required' | 'eligible' | 'optional' | 'review' | 'all';
-type ReviewFilter = 'all' | 'unreviewed' | 'reviewed';
-type LetterFilter = 'all' | 'yes' | 'no';
-type DateEvidence = 'verified' | 'needs_review';
-
-interface Filters {
-  q: string;
-  category: string;
-  profileKind: ProfileKind | '';
-  scoreBand: ScoreBand;
-  languageFilter: LanguageFilter;
-  postedWindow: '' | '1' | '7' | '14' | '30' | '90' | 'custom';
-  postedFrom: string;
-  postedTo: string;
-  dateEvidence: DateEvidence;
-  arrangement: '' | 'remote' | 'hybrid' | 'onsite';
-  locationScope: '' | 'germany' | 'outside_germany_remote';
-  country: string;
-  remoteFromGermany: '' | 'true' | 'false';
-  employmentType: string;
-  minSalary: string;
-  employer: string;
-  seniority: string;
-  savedOnly: boolean;
-  reviewFilter: ReviewFilter;
-  letterFilter: LetterFilter;
-  sort: 'newest' | 'oldest' | 'score' | 'company' | 'title';
-}
-
-const DEFAULT_FILTERS: Filters = {
-  q: '',
-  category: '',
-  profileKind: '',
-  scoreBand: '',
-  languageFilter: 'non_required',
-  postedWindow: '',
-  postedFrom: '',
-  postedTo: '',
-  dateEvidence: 'verified',
-  arrangement: '',
-  locationScope: '',
-  country: '',
-  remoteFromGermany: '',
-  employmentType: '',
-  minSalary: '',
-  employer: '',
-  seniority: '',
-  savedOnly: false,
-  reviewFilter: 'all',
-  letterFilter: 'all',
-  sort: 'newest',
-};
+import {
+  DEFAULT_JOB_FILTERS,
+  buildJobListQuery,
+  type JobDateEvidence,
+  type JobFilters,
+  type JobLanguageFilter,
+  type JobLetterFilter,
+  type JobReviewFilter,
+  type JobScoreBand,
+} from '../lib/listQuery';
 
 const FILTER_STORAGE_KEY = 'job-agent:job-filters:v1';
 
-function loadFilters(): Filters {
+function loadFilters(): JobFilters {
   try {
     const raw = localStorage.getItem(FILTER_STORAGE_KEY);
-    if (!raw) return DEFAULT_FILTERS;
-    return { ...DEFAULT_FILTERS, ...(JSON.parse(raw) as Partial<Filters>) };
+    if (!raw) return DEFAULT_JOB_FILTERS;
+    return { ...DEFAULT_JOB_FILTERS, ...(JSON.parse(raw) as Partial<JobFilters>) };
   } catch {
-    return DEFAULT_FILTERS;
+    return DEFAULT_JOB_FILTERS;
   }
-}
-
-function scoreRange(band: ScoreBand): { min?: string; max?: string } {
-  if (band === '90-100') return { min: '90', max: '100' };
-  if (band === '80-89') return { min: '80', max: '89' };
-  if (band === '70-79') return { min: '70', max: '79' };
-  if (band === 'below-70') return { max: '69' };
-  return {};
 }
 
 export function JobsPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const [filters, setFilters] = useState<Filters>(loadFilters);
+  const [filters, setFilters] = useState<JobFilters>(loadFilters);
   const [search, setSearch] = useState(filters.q);
   const [page, setPage] = useState(1);
   const [matchingId, setMatchingId] = useState<string | null>(null);
@@ -111,49 +59,18 @@ export function JobsPage() {
     }
   }, [filters]);
 
-  function patch(next: Partial<Filters>) {
+  function patch(next: Partial<JobFilters>) {
     setFilters((current) => ({ ...current, ...next }));
     setPage(1);
   }
 
   function reset() {
-    setFilters(DEFAULT_FILTERS);
+    setFilters(DEFAULT_JOB_FILTERS);
     setSearch('');
     setPage(1);
   }
 
-  const params = new URLSearchParams({ page: String(page), limit: '20', status: 'active' });
-  if (search.trim()) params.set('q', search.trim());
-  if (filters.category) params.set('category', filters.category);
-  if (filters.profileKind) params.set('profileKind', filters.profileKind);
-  const range = scoreRange(filters.scoreBand);
-  if (range.min) params.set('minScore', range.min);
-  if (range.max) params.set('maxScore', range.max);
-  if (filters.languageFilter === 'non_required') params.set('excludeGermanRequired', 'true');
-  else if (filters.languageFilter === 'all') params.set('excludeGermanRequired', 'false');
-  else if (filters.languageFilter === 'eligible') params.set('languageDecision', 'Eligible');
-  else if (filters.languageFilter === 'optional') params.set('germanOptional', 'true');
-  else if (filters.languageFilter === 'review') params.set('languageDecision', 'Needs Review');
-  if (filters.postedWindow && filters.postedWindow !== 'custom') {
-    params.set('postedWithinDays', filters.postedWindow);
-  }
-  if (filters.postedWindow === 'custom') {
-    if (filters.postedFrom) params.set('postedAfter', filters.postedFrom);
-    if (filters.postedTo) params.set('postedBefore', filters.postedTo);
-  }
-  if (filters.dateEvidence === 'needs_review') params.set('ageEligibility', 'Unknown');
-  if (filters.arrangement) params.set('workArrangement', filters.arrangement);
-  if (filters.locationScope) params.set('locationScope', filters.locationScope);
-  if (filters.country.trim()) params.set('country', filters.country.trim());
-  if (filters.remoteFromGermany) params.set('remoteEligibleFromGermany', filters.remoteFromGermany);
-  if (filters.employmentType.trim()) params.set('employmentType', filters.employmentType.trim());
-  if (filters.minSalary.trim()) params.set('minSalary', filters.minSalary.trim());
-  if (filters.employer.trim()) params.set('employer', filters.employer.trim());
-  if (filters.seniority) params.set('seniority', filters.seniority);
-  if (filters.savedOnly) params.set('saved', 'true');
-  if (filters.reviewFilter !== 'all') params.set('reviewed', filters.reviewFilter === 'reviewed' ? 'true' : 'false');
-  if (filters.letterFilter !== 'all') params.set('hasCoverLetter', filters.letterFilter === 'yes' ? 'true' : 'false');
-  params.set('sort', filters.sort);
+  const params = buildJobListQuery(filters, search, page);
 
   const jobs = useQuery<Paginated<Job>>({
     queryKey: ['jobs', params.toString()],
@@ -291,7 +208,7 @@ export function JobsPage() {
             Match score
             <Select
               value={filters.scoreBand}
-              onChange={(event) => patch({ scoreBand: event.target.value as ScoreBand })}
+              onChange={(event) => patch({ scoreBand: event.target.value as JobScoreBand })}
             >
               <option value="">Any score</option>
               <option value="90-100">90–100%</option>
@@ -305,14 +222,15 @@ export function JobsPage() {
             Posted
             <Select
               value={filters.postedWindow}
-              onChange={(event) => patch({ postedWindow: event.target.value as Filters['postedWindow'] })}
+              onChange={(event) => patch({ postedWindow: event.target.value as JobFilters['postedWindow'] })}
             >
               <option value="">Any time</option>
               <option value="1">Last 24 hours</option>
               <option value="7">Last 7 days</option>
               <option value="14">Last 14 days</option>
               <option value="30">Last 30 days</option>
-              <option value="90">Last 3 months</option>
+              <option value="90">Last 90 days</option>
+              <option value="3m">Last 3 months (maximum window)</option>
               <option value="custom">Custom range</option>
             </Select>
           </label>
@@ -344,7 +262,7 @@ export function JobsPage() {
               value={filters.dateEvidence}
               onChange={(event) =>
                 patch({
-                  dateEvidence: event.target.value as DateEvidence,
+                  dateEvidence: event.target.value as JobDateEvidence,
                   postedWindow: '',
                   postedFrom: '',
                   postedTo: '',
@@ -360,7 +278,7 @@ export function JobsPage() {
             Location scope
             <Select
               value={filters.locationScope}
-              onChange={(event) => patch({ locationScope: event.target.value as Filters['locationScope'] })}
+              onChange={(event) => patch({ locationScope: event.target.value as JobFilters['locationScope'] })}
             >
               <option value="">Germany + remote outside</option>
               <option value="germany">Germany only</option>
@@ -372,7 +290,7 @@ export function JobsPage() {
             Work arrangement
             <Select
               value={filters.arrangement}
-              onChange={(event) => patch({ arrangement: event.target.value as Filters['arrangement'] })}
+              onChange={(event) => patch({ arrangement: event.target.value as JobFilters['arrangement'] })}
             >
               <option value="">Any arrangement</option>
               <option value="remote">Remote</option>
@@ -395,7 +313,7 @@ export function JobsPage() {
             <Select
               value={filters.remoteFromGermany}
               onChange={(event) =>
-                patch({ remoteFromGermany: event.target.value as Filters['remoteFromGermany'] })
+                patch({ remoteFromGermany: event.target.value as JobFilters['remoteFromGermany'] })
               }
             >
               <option value="">Any / not stated</option>
@@ -449,7 +367,7 @@ export function JobsPage() {
             Language
             <Select
               value={filters.languageFilter}
-              onChange={(event) => patch({ languageFilter: event.target.value as LanguageFilter })}
+              onChange={(event) => patch({ languageFilter: event.target.value as JobLanguageFilter })}
             >
               <option value="non_required">Exclude German-mandatory</option>
               <option value="eligible">English eligible</option>
@@ -463,7 +381,7 @@ export function JobsPage() {
             Review state
             <Select
               value={filters.reviewFilter}
-              onChange={(event) => patch({ reviewFilter: event.target.value as ReviewFilter })}
+              onChange={(event) => patch({ reviewFilter: event.target.value as JobReviewFilter })}
             >
               <option value="all">All</option>
               <option value="unreviewed">Not yet reviewed</option>
@@ -475,7 +393,7 @@ export function JobsPage() {
             Cover letter
             <Select
               value={filters.letterFilter}
-              onChange={(event) => patch({ letterFilter: event.target.value as LetterFilter })}
+              onChange={(event) => patch({ letterFilter: event.target.value as JobLetterFilter })}
             >
               <option value="all">Any</option>
               <option value="yes">Cover letter generated</option>
@@ -487,7 +405,7 @@ export function JobsPage() {
             Sort by
             <Select
               value={filters.sort}
-              onChange={(event) => patch({ sort: event.target.value as Filters['sort'] })}
+              onChange={(event) => patch({ sort: event.target.value as JobFilters['sort'] })}
             >
               <option value="newest">Newest first</option>
               <option value="oldest">Oldest first</option>
@@ -568,6 +486,7 @@ export function JobsPage() {
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <Badge tone="info">{job.sourceLabel || job.source}</Badge>
+                    {job.simulated ? <Badge tone="warning">Simulated fixture</Badge> : null}
                     <Badge tone="neutral">{titleCase(job.workArrangement)}</Badge>
                     {job.employmentType ? <Badge tone="neutral">{job.employmentType}</Badge> : null}
                     {job.seniority !== 'unknown' ? (
@@ -599,21 +518,6 @@ export function JobsPage() {
                       {job.ageEligibility}
                     </Badge>
                     {job.status !== 'active' ? <Badge tone={statusTone(job.status)}>{job.status}</Badge> : null}
-                    {job.application ? (
-                      <Badge
-                        tone={
-                          job.application.status === 'SUBMITTED'
-                            ? 'success'
-                            : job.application.status === 'FAILED'
-                              ? 'danger'
-                              : 'warning'
-                        }
-                      >
-                        {job.application.status === 'SUBMITTED'
-                          ? `Applied${job.application.appliedAt ? ` ${formatDate(job.application.appliedAt)}` : ''}`
-                          : titleCase(job.application.status)}
-                      </Badge>
-                    ) : null}
                     <span className="text-[11px] text-slate-500">
                       {job.postedAt
                         ? `Posted ${formatDate(job.postedAt)}`

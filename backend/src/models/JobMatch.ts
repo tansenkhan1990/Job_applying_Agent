@@ -72,7 +72,6 @@ const jobMatchSchema = new Schema(
       default: null,
     },
     recommendedProfileKind: { type: String, default: '' },
-    eligibleForPreparation: { type: Boolean, default: false },
     reviewRequired: { type: Boolean, default: true },
 
     model: { type: String, default: 'deterministic' },

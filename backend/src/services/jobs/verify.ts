@@ -1,7 +1,7 @@
 import { JobModel } from '../../models/Job.js';
 import { logger } from '../../utils/logger.js';
 import { getAdapter } from './adapters/index.js';
-import { assessJobAge } from './age.js';
+import { assessJobAge, effectiveMaxAgeMonths } from './age.js';
 import { getSettings } from '../settingsService.js';
 import { isSafeRemoteUrl } from '../../utils/urlSafety.js';
 
@@ -65,7 +65,7 @@ export async function verifyJobAvailability(jobId: string): Promise<Availability
     postedAt: job.postedAt,
     expiresAt: job.expiresAt,
     status,
-    months: settings.search.maxAgeMonths,
+    months: effectiveMaxAgeMonths(settings.search.maxAgeMonths),
     now,
   });
   update.ageEligibility = age.ageEligibility;

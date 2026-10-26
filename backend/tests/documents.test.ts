@@ -44,8 +44,15 @@ describe('document parsing', () => {
     expect(parsed.pageCount).toBeGreaterThan(0);
   });
 
+  it('extracts UTF-8 text from a TXT file', async () => {
+    const parsed = await parseDocument(Buffer.from(`\uFEFF${CV_TEXT}`), '.txt');
+    expect(parsed.text).toContain('Senior Full Stack Engineer');
+    expect(parsed.parsedWith).toBe('utf-8');
+    expect(parsed.needsOcr).toBe(false);
+  });
+
   it('rejects unsupported extensions and corrupt files', async () => {
-    await expect(parseDocument(Buffer.from('text'), '.txt')).rejects.toThrow(/Unsupported/);
+    await expect(parseDocument(Buffer.from('text'), '.rtf')).rejects.toThrow(/Unsupported/);
     await expect(parseDocument(Buffer.from('not a pdf'), '.pdf')).rejects.toThrow();
   });
 });
@@ -137,6 +144,23 @@ describe('document ingestion', () => {
 
     const profile = await CandidateProfileModel.findOne({ kind: 'ai_engineer' });
     expect(String(profile?.cvDocument)).toBe(String(doc?._id));
+  });
+
+  it('classifies documents by their contents when filenames are uninformative', async () => {
+    await ensureDefaultProfiles();
+    await fs.writeFile(path.join(tempRoot, 'document-1.txt'), CV_TEXT);
+    await fs.writeFile(
+      path.join(tempRoot, 'document-2.txt'),
+      'Dear Hiring Manager,\n\nI am writing to apply for the Senior Full Stack Engineer role. My TypeScript, React and Node.js work is described in my CV.\n\nSincerely,\nJane Example',
+    );
+
+    await rescanDocuments();
+    const cv = await DocumentModel.findOne({ filename: 'document-1.txt' });
+    const letter = await DocumentModel.findOne({ filename: 'document-2.txt' });
+    expect(cv?.docType).toBe('cv');
+    expect(cv?.profileKind).toBe('full_stack');
+    expect(letter?.docType).toBe('cover_letter');
+    expect(letter?.status).toBe('processed');
   });
 
   it('infers mappings from common filenames', () => {

@@ -32,6 +32,11 @@ interface DraftShape {
   location: string;
   languages: string;
   countries: string;
+  experience: string;
+  education: string;
+  projects: string;
+  publications: string;
+  certifications: string;
   remote: boolean;
   hybrid: boolean;
   onsite: boolean;
@@ -46,10 +51,82 @@ const emptyDraft: DraftShape = {
   location: '',
   languages: '',
   countries: '',
+  experience: '',
+  education: '',
+  projects: '',
+  publications: '',
+  certifications: '',
   remote: true,
   hybrid: true,
   onsite: true,
 };
+
+const splitLines = (value: string) =>
+  value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+const splitParts = (line: string) => line.split('|').map((part) => part.trim());
+
+function experienceToText(entries: CandidateProfile['experience']): string {
+  return entries
+    .map((entry) =>
+      [entry.title, entry.employer, entry.startDate ?? '', entry.endDate ?? '', entry.summary ?? ''].join(
+        ' | ',
+      ),
+    )
+    .join('\n');
+}
+
+function educationToText(entries: CandidateProfile['education']): string {
+  return entries
+    .map((entry) => [entry.degree, entry.institution, entry.year ?? ''].join(' | '))
+    .join('\n');
+}
+
+function projectsToText(entries: CandidateProfile['projects']): string {
+  return entries
+    .map((entry) => [entry.name, (entry.technologies ?? []).join(', '), entry.summary].join(' | '))
+    .join('\n');
+}
+
+function parseExperience(text: string) {
+  return splitLines(text)
+    .map((line) => {
+      const [title = '', employer = '', startDate = '', endDate = '', ...summary] = splitParts(line);
+      return {
+        title,
+        employer,
+        startDate,
+        endDate,
+        summary: summary.join(' | '),
+      };
+    })
+    .filter((entry) => entry.title && entry.employer);
+}
+
+function parseEducation(text: string) {
+  return splitLines(text)
+    .map((line) => {
+      const [degree = '', institution = '', year = ''] = splitParts(line);
+      return { degree, institution, year };
+    })
+    .filter((entry) => entry.degree && entry.institution);
+}
+
+function parseProjects(text: string) {
+  return splitLines(text)
+    .map((line) => {
+      const [name = '', technologies = '', ...summary] = splitParts(line);
+      return {
+        name,
+        technologies: splitCsv(technologies),
+        summary: summary.join(' | '),
+      };
+    })
+    .filter((entry) => entry.name);
+}
 
 function toDraft(profile: CandidateProfile): DraftShape {
   return {
@@ -61,6 +138,11 @@ function toDraft(profile: CandidateProfile): DraftShape {
     location: profile.location ?? '',
     languages: (profile.languages ?? []).map((item) => `${item.language}:${item.level}`).join(', '),
     countries: (profile.workPreferences?.countries ?? []).join(', '),
+    experience: experienceToText(profile.experience ?? []),
+    education: educationToText(profile.education ?? []),
+    projects: projectsToText(profile.projects ?? []),
+    publications: (profile.publications ?? []).join('\n'),
+    certifications: (profile.certifications ?? []).join(', '),
     remote: profile.workPreferences?.remote ?? true,
     hybrid: profile.workPreferences?.hybrid ?? true,
     onsite: profile.workPreferences?.onsite ?? true,
@@ -144,7 +226,7 @@ export function ProfilesPage() {
     <div className="space-y-5">
       <PageHeader
         title="Candidate profiles"
-        description="Three independent career paths. Each has its own target titles, skills, CV and cover letter. Approve a profile before preparing applications."
+        description="Three independent career paths. Each has its own target titles, skills, CV and cover letter. Review and approve a profile so matching and letters use verified evidence."
         actions={
           <Badge tone={draftCount > 0 ? 'warning' : 'success'}>
             {draftCount > 0 ? `${draftCount} awaiting approval` : 'All approved'}
@@ -251,6 +333,74 @@ export function ProfilesPage() {
                 </p>
               )}
 
+              {profile.experience?.length ? (
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                    Experience
+                  </p>
+                  <ul className="mt-1 space-y-1 text-xs text-slate-300">
+                    {profile.experience.slice(0, 3).map((entry, index) => (
+                      <li key={`${entry.title}-${entry.employer}-${index}`}>
+                        <span className="font-medium text-slate-200">{entry.title}</span> · {entry.employer}
+                        {entry.startDate || entry.endDate ? (
+                          <span className="text-slate-500">
+                            {' '}
+                            ({entry.startDate || '?'} – {entry.endDate || 'present'})
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                    {profile.experience.length > 3 ? (
+                      <li className="text-slate-500">+{profile.experience.length - 3} more</li>
+                    ) : null}
+                  </ul>
+                </div>
+              ) : null}
+
+              {profile.education?.length ? (
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Education</p>
+                  <ul className="mt-1 space-y-1 text-xs text-slate-300">
+                    {profile.education.slice(0, 3).map((entry, index) => (
+                      <li key={`${entry.degree}-${entry.institution}-${index}`}>
+                        {entry.degree} · {entry.institution}
+                        {entry.year ? <span className="text-slate-500"> ({entry.year})</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {profile.publications?.length ? (
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                    Publications ({profile.publications.length})
+                  </p>
+                  <ul className="mt-1 space-y-1 text-xs text-slate-300">
+                    {profile.publications.slice(0, 2).map((publication, index) => (
+                      <li key={`${publication}-${index}`} className="line-clamp-2">
+                        {publication}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {profile.projects?.length ? (
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                    Projects ({profile.projects.length})
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {profile.projects.slice(0, 4).map((project, index) => (
+                      <Badge key={`${project.name}-${index}`} tone="neutral">
+                        {project.name}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
                 <Badge tone="neutral">{profile.yearsExperience ?? '?'} years</Badge>
                 {profile.languages.map((language) => (
@@ -298,7 +448,7 @@ export function ProfilesPage() {
 
       {draftCount > 0 ? (
         <WarningNote>
-          Draft profiles cannot be used to prepare applications. Extract or edit the profile, verify its
+          Draft profiles are not used as the primary matching source. Extract or edit the profile, verify its
           claims against the CV, then approve it.
         </WarningNote>
       ) : null}
@@ -335,6 +485,11 @@ export function ProfilesPage() {
                         level: rest.join(':').trim() || 'unknown',
                       };
                     }),
+                    experience: parseExperience(draft.experience),
+                    education: parseEducation(draft.education),
+                    projects: parseProjects(draft.projects),
+                    publications: splitLines(draft.publications),
+                    certifications: splitCsv(draft.certifications.replace(/\n/g, ',')),
                     workPreferences: {
                       countries: splitCsv(draft.countries),
                       remote: draft.remote,
@@ -398,6 +553,62 @@ export function ProfilesPage() {
             <Input
               value={draft.countries}
               onChange={(event) => setDraft({ ...draft, countries: event.target.value })}
+            />
+          </Field>
+          <Field
+            label="Experience"
+            hint="One role per line: Title | Employer | Start | End | Summary"
+            className="sm:col-span-2"
+          >
+            <Textarea
+              value={draft.experience}
+              rows={4}
+              onChange={(event) => setDraft({ ...draft, experience: event.target.value })}
+              placeholder="Senior Full Stack Engineer | Example GmbH | 2021 | present | Built TypeScript services"
+            />
+          </Field>
+          <Field
+            label="Education"
+            hint="One degree per line: Degree | Institution | Year"
+            className="sm:col-span-2"
+          >
+            <Textarea
+              value={draft.education}
+              rows={3}
+              onChange={(event) => setDraft({ ...draft, education: event.target.value })}
+              placeholder="MSc Computer Science | Example University | 2021"
+            />
+          </Field>
+          <Field
+            label="Projects"
+            hint="One project per line: Name | Technologies (comma-separated) | Summary"
+            className="sm:col-span-2"
+          >
+            <Textarea
+              value={draft.projects}
+              rows={3}
+              onChange={(event) => setDraft({ ...draft, projects: event.target.value })}
+            />
+          </Field>
+          <Field
+            label="Publications"
+            hint="One publication per line. Only list publications evidenced in the CV. Used by the PhD score."
+            className="sm:col-span-2"
+          >
+            <Textarea
+              value={draft.publications}
+              rows={3}
+              onChange={(event) => setDraft({ ...draft, publications: event.target.value })}
+            />
+          </Field>
+          <Field
+            label="Certifications"
+            hint="Comma-separated"
+            className="sm:col-span-2"
+          >
+            <Input
+              value={draft.certifications}
+              onChange={(event) => setDraft({ ...draft, certifications: event.target.value })}
             />
           </Field>
           <div className="space-y-2 sm:col-span-2">

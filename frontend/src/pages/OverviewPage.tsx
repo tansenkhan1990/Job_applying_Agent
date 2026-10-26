@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, errorMessage } from '../api/client';
 import type { DashboardSummary, DiscoveryResult } from '../api/types';
-import { formatDateTime, scoreTone, statusTone, timeAgo, titleCase } from '../lib/format';
+import { formatDateTime, statusTone, timeAgo } from '../lib/format';
 import {
   Badge,
   Button,
@@ -50,20 +50,20 @@ export function OverviewPage() {
   }
   if (!summary.data) return null;
 
-  const { totals, topMatches, recentRuns, ai } = summary.data;
+  const { totals, topMatches, recentRuns, ai, sourceFailures, lastSuccessful } = summary.data;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Overview"
-        description="Local job discovery, profile-specific relevance scores and application review in one place."
+        description="Verified vacancies and doctoral positions, estimated profile matches and tailored cover letters in one place."
         actions={
           <>
             <Button variant="secondary" onClick={() => void summary.refetch()} loading={summary.isFetching}>
               Refresh
             </Button>
             <Button variant="primary" onClick={() => runSearch.mutate()} loading={runSearch.isPending}>
-              Run discovery
+              Run job discovery
             </Button>
           </>
         }
@@ -72,44 +72,78 @@ export function OverviewPage() {
       {!ai.configured ? (
         <WarningNote>
           <strong className="font-semibold">OpenRouter is not configured.</strong> Matching, profile
-          extraction and cover letters currently use deterministic fallbacks. Add OPENROUTER_API_KEY to{' '}
+          extraction and cover letters use deterministic fallbacks. Add OPENROUTER_API_KEY to{' '}
           <code className="rounded bg-slate-950/50 px-1">.env</code>, restart the backend, then choose a model
-          in Settings. Nothing will be submitted automatically.
+          in Settings. This tool never submits an application.
         </WarningNote>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-        <StatCard label="Discovered" value={totals.totalJobs} hint={`${totals.activeJobs} active`} />
-        <StatCard label="Relevant ≥80" value={totals.relevant} tone="success" hint="Across all profiles" />
+      {sourceFailures.length > 0 ? (
+        <WarningNote>
+          <strong className="font-semibold">Some sources failed in the last run.</strong> Stored results were
+          kept, but freshness is not guaranteed.
+          <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+            {sourceFailures.map((failure) => (
+              <li key={`${failure.kind}-${failure.source}`}>
+                {failure.kind === 'jobs' ? 'Jobs' : 'PhD'} · {failure.source}: {failure.error}
+              </li>
+            ))}
+          </ul>
+        </WarningNote>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
         <StatCard
-          label="Age eligible"
-          value={totals.eligibleByAge}
+          label="Jobs in window"
+          value={totals.eligibleByDate}
+          hint={`${totals.totalJobs} active stored`}
+        />
+        <StatCard label="New in 24h" value={totals.newJobs} tone="info" hint="Discovered recently" />
+        <StatCard
+          label={`High match ≥${summary.data.highMatchThreshold}`}
+          value={totals.highMatchJobs}
           tone="success"
-          hint={`${totals.eligibleNotApplied} not applied`}
+          hint="Inside the date window"
+        />
+        <StatCard label="Saved jobs" value={totals.savedJobs} tone="neutral" hint="Your shortlist" />
+        <StatCard label="Open PhDs" value={totals.openPhd} tone="success" hint="Verified deadline or rolling" />
+        <StatCard
+          label="PhD deadlines ≤14d"
+          value={totals.phdDeadlineSoon}
+          tone="warning"
+          hint="Still open"
         />
         <StatCard
-          label="Date unknown"
-          value={totals.unknownPostingDate}
+          label="PhD date unknown"
+          value={totals.phdUnknownDeadline}
           tone="neutral"
-          hint="Needs review, never auto-applied"
+          hint="Needs verification"
         />
-        <StatCard label="Expired" value={totals.expiredByAge} tone="danger" hint="Not accepting applications" />
-        <StatCard label="Pending review" value={totals.pendingApproval} tone="warning" hint="Approval required" />
+        <StatCard label="Saved PhDs" value={totals.savedPhd} tone="neutral" hint="Your shortlist" />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
         <StatCard
-          label="Awaiting me"
-          value={totals.preparedAwaitingReview}
-          tone="info"
-          hint={`${totals.assistantActive} assistant active`}
+          label="Last job search"
+          value={lastSuccessful.jobs ? timeAgo(lastSuccessful.jobs) : 'never'}
+          hint={lastSuccessful.jobs ? formatDateTime(lastSuccessful.jobs) : 'Run a discovery'}
         />
-        <StatCard label="Submitted" value={totals.submitted} tone="success" hint="Confirmed only" />
-        <StatCard label="Manual action" value={totals.manual} tone="info" hint="Needs your browser" />
-        <StatCard label="Failed" value={totals.failed} tone="danger" hint="See application details" />
+        <StatCard
+          label="Last PhD search"
+          value={lastSuccessful.phd ? timeAgo(lastSuccessful.phd) : 'never'}
+          hint={lastSuccessful.phd ? formatDateTime(lastSuccessful.phd) : 'Run a PhD search'}
+        />
+        <StatCard
+          label="Cover letters saved"
+          value={totals.savedLetters}
+          hint={`${totals.approvedProfiles} approved profile(s)`}
+        />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card
           title="Top matches"
-          subtitle="Highest relevance scores across your career profiles"
+          subtitle="Highest estimated profile matches across your career profiles"
           action={
             <Link to="/jobs" className="text-xs text-indigo-300 hover:text-indigo-200">
               View all jobs →
@@ -121,7 +155,7 @@ export function OverviewPage() {
             <div className="p-4">
               <EmptyState
                 title="No matches yet"
-                description="Run a discovery first, then open a job and evaluate it against your profiles."
+                description="Run a discovery, then open a job to evaluate it against your profiles."
                 action={
                   <Link to="/jobs">
                     <Button size="sm">Go to jobs</Button>
@@ -131,26 +165,24 @@ export function OverviewPage() {
             </div>
           ) : (
             <ul className="divide-y divide-slate-800/80">
-              {topMatches.map((match) => {
-                const jobId = typeof match.job === 'string' ? match.job : match.job.id;
-                return (
-                  <li key={match.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                      <Link
-                        to={`/jobs/${jobId}`}
-                        className="block truncate text-sm font-medium text-slate-100 hover:text-indigo-200"
-                      >
-                        {match.jobTitle}
-                      </Link>
-                      <p className="truncate text-xs text-slate-400">
-                        {match.employer} · {titleCase(match.profileKind)}
-                      </p>
-                    </div>
-                    {match.reviewRequired ? <Badge tone="warning">Review</Badge> : null}
-                    <ScoreBadge score={match.score} />
-                  </li>
-                );
-              })}
+              {topMatches.map((match) => (
+                <li key={match.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      to={`/jobs/${match.jobId}`}
+                      className="block truncate text-sm font-medium text-slate-100 hover:text-indigo-200"
+                    >
+                      {match.jobTitle}
+                    </Link>
+                    <p className="truncate text-xs text-slate-400">
+                      {match.employer}
+                      {match.location ? ` · ${match.location}` : ''}
+                    </p>
+                  </div>
+                  {match.reviewRequired ? <Badge tone="warning">Review</Badge> : null}
+                  <ScoreBadge score={match.score} />
+                </li>
+              ))}
             </ul>
           )}
         </Card>
@@ -171,6 +203,7 @@ export function OverviewPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <Badge tone={statusTone(run.status)}>{run.status}</Badge>
+                      <Badge tone="neutral">{run.status === 'running' ? 'phd' : 'jobs'}</Badge>
                       <span className="text-xs text-slate-400">{timeAgo(run.startedAt)}</span>
                       <Badge tone="neutral">{run.trigger}</Badge>
                     </div>
@@ -203,53 +236,38 @@ export function OverviewPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card title="Workflow reminders">
+        <Card title="How to use this dashboard">
           <ol className="space-y-2 text-sm text-slate-300">
             <li>
-              <span className="font-medium text-slate-100">1. Map documents.</span> Assign each CV and cover
-              letter to a profile, then approve the parsed profile.
+              <span className="font-medium text-slate-100">1. Confirm documents.</span> Check that each CV and
+              reference letter was mapped to the right career profile.
             </li>
             <li>
               <span className="font-medium text-slate-100">2. Discover & score.</span> Pull vacancies from
-              enabled sources and evaluate the relevant ones.
+              enabled sources and let the deterministic scorer explain each match.
             </li>
             <li>
-              <span className="font-medium text-slate-100">3. Review the letter.</span> Edit or regenerate it
-              until every claim is grounded in your CV.
+              <span className="font-medium text-slate-100">3. Review the fit.</span> Read the missing skills,
+              deadline and eligibility notes before deciding where to apply.
             </li>
             <li>
-              <span className="font-medium text-slate-100">4. Approve explicitly.</span> The backend refuses to
-              submit without a matching approval record.
+              <span className="font-medium text-slate-100">4. Draft the letter.</span> Generate, edit and
+              download it in the job or PhD workspace.
             </li>
           </ol>
         </Card>
-        <Card title="Safety invariants">
+        <Card title="Rules enforced by the backend">
           <ul className="space-y-2 text-sm text-slate-300">
-            <li>No fabricated experience, metrics or legal declarations.</li>
-            <li>Jobs that require German are filtered out by default; optional or not-required German stays.</li>
-            <li>Only postings less than three calendar months old are shown and can enter the application assistant.</li>
-            <li>Unknown posting dates and older postings are kept out of the queue.</li>
-            <li>Only fictional mock jobs can use simulated submission.</li>
-            <li>Real employers require you to complete the form and confirm manually.</li>
-            <li>Duplicate applications are blocked by job and by employer/title.</li>
+            <li>Professional jobs must be posted inside the last three calendar months.</li>
+            <li>Unknown posting dates never appear in normal job results.</li>
+            <li>Jobs that mandate German are excluded by default; optional German stays.</li>
+            <li>Jobs outside Germany are remote-only and must allow work from Germany.</li>
+            <li>PhD positions are filtered by deadline, not posting age.</li>
+            <li>PhD deadlines that cannot be verified are shown separately.</li>
+            <li>Dates, filters, deduplication and match scores are deterministic, never invented by the model.</li>
           </ul>
         </Card>
       </div>
-
-      {summary.data.applicationsByStatus && Object.keys(summary.data.applicationsByStatus).length > 0 ? (
-        <Card title="Applications by status">
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(summary.data.applicationsByStatus).map(([status, count]) => (
-              <Badge key={status} tone={statusTone(status)}>
-                {status}: {count}
-              </Badge>
-            ))}
-          </div>
-          <p className="mt-3 text-[11px] text-slate-500">
-            Last refreshed {formatDateTime(new Date().toISOString())}
-          </p>
-        </Card>
-      ) : null}
     </div>
   );
 }

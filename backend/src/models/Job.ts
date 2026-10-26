@@ -5,6 +5,8 @@ const jobSchema = new Schema(
     source: { type: String, required: true, index: true },
     sourceJobId: { type: String, required: true },
     sourceLabel: { type: String, default: '' },
+    // Local fixtures only. The UI labels them so sample data can never look like a live listing.
+    simulated: { type: Boolean, default: false, index: true },
     url: { type: String, required: true },
     canonicalUrl: { type: String, required: true, index: true },
     applicationUrl: { type: String, default: '' },

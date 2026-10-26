@@ -46,6 +46,79 @@ export function inferMapping(filename: string, relativePath: string): {
   return { docType, profileKind };
 }
 
+/**
+ * Content-based fallback for documents whose filename says nothing useful. This never
+ * overrides an explicit manual mapping and only fills gaps left by filename inference.
+ */
+export function inferDocumentFromText(text: string): {
+  docType: 'cv' | 'cover_letter' | 'unknown';
+  profileKind: ProfileKind | 'unassigned';
+} {
+  const lower = text.toLowerCase();
+  const count = (patterns: RegExp[]) => patterns.reduce((sum, pattern) => sum + (pattern.test(lower) ? 1 : 0), 0);
+
+  const coverHits = count([
+    /\bdear (hiring|sir|madam|professor|prof\.|dr\.|recruit)/,
+    /\bi am (writing|applying) (to|for)\b/,
+    /\b(yours (sincerely|faithfully)|kind regards|best regards|sincerely)\b/,
+    /\b(cover letter|anschreiben|bewerbung|motivation letter)\b/,
+    /\bthank you for (considering|your consideration)\b/,
+  ]);
+  const cvHits = count([
+    /\b(curriculum vitae|resume|lebenslauf)\b/,
+    /\b(professional|work|employment) experience\b/,
+    /\b(education|academic background|ausbildung)\b/,
+    /\b(skills|technical skills|kenntnisse)\b/,
+    /\b(publications?|projects?)\b/,
+  ]);
+
+  let docType: 'cv' | 'cover_letter' | 'unknown' = 'unknown';
+  if (coverHits >= 2 && coverHits > cvHits) docType = 'cover_letter';
+  else if (cvHits >= 2 && cvHits >= coverHits) docType = 'cv';
+  else if (coverHits === 1 && cvHits === 0) docType = 'cover_letter';
+
+  const groups: Array<{ kind: ProfileKind; patterns: RegExp[] }> = [
+    {
+      kind: 'ai_engineer',
+      patterns: [
+        /\b(machine learning|deep learning)\b/,
+        /\b(llms?|large language models?)\b/,
+        /\b(rag|retrieval[- ]augmented generation)\b/,
+        /\b(nlp|natural language processing)\b/,
+        /\b(pytorch|tensorflow|langchain|langgraph|vector database)\b/,
+      ],
+    },
+    {
+      kind: 'devops_cloud',
+      patterns: [
+        /\b(kubernetes|k8s|terraform|ansible)\b/,
+        /\b(aws|azure|google cloud|gcp)\b/,
+        /\b(ci\/cd|devops|site reliability|sre)\b/,
+        /\b(docker|helm|prometheus|grafana)\b/,
+      ],
+    },
+    {
+      kind: 'full_stack',
+      patterns: [
+        /\b(typescript|javascript)\b/,
+        /\b(react|angular|vue|next\.js)\b/,
+        /\b(node\.js|express|nestjs)\b/,
+        /\b(postgresql|mongodb|graphql|rest apis?)\b/,
+      ],
+    },
+  ];
+
+  const scores = groups.map((group) => ({
+    kind: group.kind,
+    score: group.patterns.filter((pattern) => pattern.test(lower)).length,
+  }));
+  scores.sort((a, b) => b.score - a.score);
+  const best = scores[0];
+  const profileKind = best && best.score >= 2 ? best.kind : 'unassigned';
+
+  return { docType, profileKind };
+}
+
 async function readFileSafe(file: ScannedFile): Promise<Buffer> {
   const buffer = await fs.readFile(file.absolutePath);
   if (buffer.byteLength > env.maxDocumentSizeBytes) {
@@ -113,6 +186,13 @@ export async function rescanDocuments(): Promise<IngestionSummary> {
     try {
       const buffer = await readFileSafe(file);
       const parsed = await parseDocument(buffer, file.extension);
+      const contentInferred = inferDocumentFromText(parsed.text);
+      // Filename hints win when present; otherwise the extracted contents decide.
+      const mapping = {
+        docType: inferred.docType !== 'unknown' ? inferred.docType : contentInferred.docType,
+        profileKind:
+          inferred.profileKind !== 'unassigned' ? inferred.profileKind : contentInferred.profileKind,
+      };
 
       const patch: Record<string, unknown> = {
         filename: file.filename,
@@ -133,29 +213,29 @@ export async function rescanDocuments(): Promise<IngestionSummary> {
       };
 
       if (!existing) {
-        patch.docType = inferred.docType;
-        patch.profileKind = inferred.profileKind;
-        patch.mappingSource = inferred.docType !== 'unknown' ? 'auto' : 'none';
+        patch.docType = mapping.docType;
+        patch.profileKind = mapping.profileKind;
+        patch.mappingSource = mapping.docType !== 'unknown' ? 'auto' : 'none';
         patch.mappingReviewed = false;
         await DocumentModel.create(patch);
         summary.added += 1;
-        if (inferred.docType !== 'unknown' && inferred.profileKind !== 'unassigned') summary.autoMapped += 1;
+        if (mapping.docType !== 'unknown' && mapping.profileKind !== 'unassigned') summary.autoMapped += 1;
       } else {
-        // Preserve manual mappings; re-run filename inference only for auto mappings.
+        // Preserve manual mappings; re-run inference only for auto mappings.
         if (existing.mappingSource !== 'manual') {
-          if (inferred.docType !== 'unknown') {
-            patch.docType = inferred.docType;
+          if (mapping.docType !== 'unknown') {
+            patch.docType = mapping.docType;
             patch.mappingSource = 'auto';
           }
-          if (existing.profileKind === 'unassigned' && inferred.profileKind !== 'unassigned') {
-            patch.profileKind = inferred.profileKind;
+          if (existing.profileKind === 'unassigned' && mapping.profileKind !== 'unassigned') {
+            patch.profileKind = mapping.profileKind;
             patch.mappingSource = 'auto';
           }
         }
         patch.changedAt = new Date();
         await DocumentModel.updateOne({ _id: existing._id }, { $set: patch });
         summary.updated += 1;
-        if (inferred.docType !== 'unknown' && inferred.profileKind !== 'unassigned' && existing.mappingSource !== 'manual') {
+        if (mapping.docType !== 'unknown' && mapping.profileKind !== 'unassigned' && existing.mappingSource !== 'manual') {
           summary.autoMapped += 1;
         }
       }
