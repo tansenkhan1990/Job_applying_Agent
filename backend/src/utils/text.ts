@@ -61,6 +61,15 @@ export function normalizeForMatch(input: string): string {
     .trim();
 }
 
+/**
+ * Escape user-provided text before it is used as a regular expression. Without this a search
+ * such as "C++" or "(m/w/d)" is an invalid pattern and the query fails instead of matching the
+ * literal text the user typed.
+ */
+export function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function truncate(input: string, maxChars: number): string {
   if (input.length <= maxChars) return input;
   return `${input.slice(0, maxChars)}\n[truncated]`;

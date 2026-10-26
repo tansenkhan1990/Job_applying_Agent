@@ -131,6 +131,7 @@ A chat session is bound to exactly one job. Passing another job's session id is 
 | `topic` | Research topic or title contains |
 | `researchArea` | `ai`, `cybersecurity`, `software_engineering`, `data`; defaults to those four. `other` exists only for inspecting excluded rows. |
 | `institution`, `country` | Filters |
+| `workArrangement` | `onsite`, `hybrid`, `remote`, `unknown`; omitted means unrelated to the work arrangement, so on-site positions are listed alongside remote ones |
 | `deadlineStatus` | `open` (default), `unknown`, `expired`, `closed` |
 | `deadlineWithinDays` | Closing window |
 | `funded` | `true` (default) = explicit funding evidence only; `false` = review view for advertisements without funding evidence |
@@ -144,8 +145,8 @@ Unknown deadlines are reachable only through `deadlineStatus=unknown`. PhD posit
 filtered by posting age.
 
 Discovery enforces three hard rules before a position is stored: the country must be in
-Europe, Turkey, the USA or Canada; the research area must be AI, cybersecurity, software
-engineering or data; and the advertisement must explicitly evidence funding (funded position,
+Europe, Turkey, the USA, Canada or Malaysia; the research area must be AI, cybersecurity,
+software engineering or data; and the advertisement must explicitly evidence funding (funded position,
 salary, stipend, scholarship, doctoral contract, TV-L/E13 pay). Positions that state funding
 must be secured by the applicant are labelled `not_funded`; silence is `unknown`. Neither is
 listed by default.

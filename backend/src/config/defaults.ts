@@ -231,7 +231,9 @@ export function defaultSettings(): AppSettings {
       arbeitnow: { enabled: true },
       remotive: { enabled: true },
       mock: { enabled: env.ENABLE_MOCK_SOURCE },
-      phd_mock: { enabled: env.ENABLE_MOCK_SOURCE },
+      // The PhD workspace has no live source until PHD_FEED_URL is set, so the clearly labelled
+      // simulated fixtures are on by default and can be switched off in the PhD page.
+      phd_mock: { enabled: true },
       phd_feed: { enabled: false },
     },
   };

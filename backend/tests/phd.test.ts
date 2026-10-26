@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
+import { AppSettingModel } from '../src/models/AppSetting.js';
+import { defaultSettings } from '../src/config/defaults.js';
+import { getSettings } from '../src/services/settingsService.js';
 import { PhdPositionModel } from '../src/models/PhdPosition.js';
 import { PhdMatchModel } from '../src/models/PhdMatch.js';
 import { CandidateProfileModel } from '../src/models/CandidateProfile.js';
@@ -8,6 +11,7 @@ import { ChatSessionModel } from '../src/models/ChatSession.js';
 import { env } from '../src/config/env.js';
 import { phdMockAdapter } from '../src/services/phd/adapters/mock.js';
 import { phdFeedAdapter } from '../src/services/phd/adapters/feed.js';
+import { seedPhdPositionsIfEmpty } from '../src/services/phd/bootstrap.js';
 import { sendChatMessage, type ChatResponderInput } from '../src/services/ai/chat.js';
 import { scorePhdFit } from '../src/services/phd/scoring.js';
 import { seedApprovedProfiles } from './helpers.js';
@@ -17,7 +21,7 @@ const app = createApp();
 describe('PhD mock source', () => {
   it('labels every fixture as simulated and uses example.org links', async () => {
     const listings = await phdMockAdapter.searchPositions({ maxPositions: 20 });
-    expect(listings.length).toBe(7);
+    expect(listings.length).toBe(11);
     expect(listings.every((listing) => listing.simulated)).toBe(true);
     expect(listings.every((listing) => listing.url.startsWith('https://example.org/'))).toBe(true);
   });
@@ -80,28 +84,127 @@ describe('configured PhD feed adapter', () => {
 });
 
 describe('PhD discovery', () => {
-  it('stores German positions and explicitly remote EU positions only', async () => {
+  it('stores fully funded in-scope positions from every target region', async () => {
     const response = await request(app).post('/api/phd/search').send({}).expect(201);
-    expect(response.body.created).toBe(5);
-    // The Dutch hybrid role and the German-mandatory role are filtered out.
+    expect(response.body.created).toBe(9);
+    // The German-mandatory role and the unfunded Dutch hybrid role are filtered out.
     expect(response.body.filteredOut).toBe(2);
 
     const list = await request(app).get('/api/phd/positions?limit=50').expect(200);
-    expect(list.body.total).toBe(5);
+    expect(list.body.total).toBe(9);
     const titles = list.body.items.map((item: { title: string }) => item.title);
     expect(titles.some((title: string) => /Deutschkenntnisse/.test(title))).toBe(false);
     expect(titles.some((title: string) => /hybrid, Netherlands/.test(title))).toBe(false);
 
-    const outside = list.body.items.filter(
-      (item: { country: string }) => item.country !== 'Germany',
+    const countries = new Set(
+      list.body.items.map((item: { country: string }) => item.country),
     );
-    expect(outside).toHaveLength(1);
-    expect(outside[0].workArrangement).toBe('remote');
-    expect(outside[0].remoteEligibleFromGermany).toBe(true);
-    expect(outside[0].simulated).toBe(true);
+    for (const country of [
+      'Germany',
+      'Netherlands',
+      'Canada',
+      'United States',
+      'Turkey',
+      'Malaysia',
+    ]) {
+      expect(countries.has(country)).toBe(true);
+    }
+
+    const remote = list.body.items.find(
+      (item: { country: string }) => item.country === 'Netherlands',
+    );
+    expect(remote.workArrangement).toBe('remote');
+    expect(remote.remoteEligibleFromGermany).toBe(true);
+    expect(remote.simulated).toBe(true);
+    expect(
+      list.body.items.every((item: { fundingStatus: string }) => item.fundingStatus === 'funded'),
+    ).toBe(true);
+
+    // On-site, hybrid and remote positions are all in scope; only the work arrangement differs.
+    const arrangements = new Set(
+      list.body.items.map((item: { workArrangement: string }) => item.workArrangement),
+    );
+    expect([...arrangements].sort()).toEqual(['hybrid', 'onsite', 'remote']);
   });
 
-  it('stores only fully funded, in-scope positions in Europe, Turkey, the USA and Canada', async () => {
+  it('lists on-site positions from every target region and only narrows on an explicit request', async () => {
+    await request(app).post('/api/phd/search').send({}).expect(201);
+
+    const all = await request(app).get('/api/phd/positions?limit=50').expect(200);
+    const onsite = all.body.items.filter(
+      (item: { workArrangement: string }) => item.workArrangement === 'onsite',
+    );
+    expect(onsite.length).toBeGreaterThan(0);
+    for (const country of ['Canada', 'United States', 'Turkey']) {
+      expect(
+        onsite.some((item: { country: string }) => item.country === country),
+        `expected an on-site position in ${country}`,
+      ).toBe(true);
+    }
+
+    const onlyOnsite = await request(app)
+      .get('/api/phd/positions?limit=50&workArrangement=onsite')
+      .expect(200);
+    expect(onlyOnsite.body.total).toBe(onsite.length);
+    expect(
+      onlyOnsite.body.items.every(
+        (item: { workArrangement: string }) => item.workArrangement === 'onsite',
+      ),
+    ).toBe(true);
+  });
+
+  it('seeds the store on startup only while no position is stored yet', async () => {
+    expect(await seedPhdPositionsIfEmpty()).toBe(9);
+    expect(await PhdPositionModel.countDocuments()).toBe(9);
+
+    // A store that already holds positions is left untouched.
+    expect(await seedPhdPositionsIfEmpty()).toBe(0);
+    expect(await PhdPositionModel.countDocuments()).toBe(9);
+  });
+
+  it('matches free-text filters literally instead of failing on regular-expression characters', async () => {
+    await request(app).post('/api/phd/search').send({}).expect(201);
+
+    for (const query of [
+      'q=C%2B%2B',
+      'q=%5B',
+      'institution=Foo%20%5BBar%5D',
+      'topic=(m%2Fw%2Fd)',
+      'country=Malaysia',
+    ]) {
+      const response = await request(app)
+        .get(`/api/phd/positions?limit=50&${query}`)
+        .expect(200);
+      expect(Array.isArray(response.body.items)).toBe(true);
+    }
+
+    const knowledge = await request(app)
+      .get('/api/phd/positions?limit=50&q=Knowledge%20Graphs')
+      .expect(200);
+    expect(knowledge.body.total).toBeGreaterThan(0);
+    expect(knowledge.body.items.every((item: { title: string }) => /knowledge graphs/i.test(item.title))).toBe(
+      true,
+    );
+  });
+
+  it('enables the simulated PhD source once for settings that predate the default', async () => {
+    const legacy = structuredClone(defaultSettings());
+    legacy.sources.phd_mock = { enabled: false };
+    legacy.sources.phd_feed = { enabled: false };
+    await AppSettingModel.create({ key: 'global', value: legacy });
+
+    const migrated = await getSettings();
+    expect(migrated.sources.phd_mock.enabled).toBe(true);
+
+    // The migration is one-time, so a manual disable afterwards is respected.
+    await request(app)
+      .patch('/api/settings')
+      .send({ sources: { phd_mock: { enabled: false } } })
+      .expect(200);
+    expect((await getSettings()).sources.phd_mock.enabled).toBe(false);
+  });
+
+  it('stores only fully funded, in-scope positions in Europe, Turkey, the USA, Canada and Malaysia', async () => {
     env.PHD_FEED_URL = 'https://example.org/phd-feed.json';
     const fundedItem = (id: string, overrides: Record<string, unknown>) => ({
       id,
@@ -130,6 +233,12 @@ describe('PhD discovery', () => {
                 location: 'Ankara, Turkey',
                 workArrangement: 'onsite',
                 description: 'Fully funded doctoral contract. English is the working language.',
+              }),
+              fundedItem('my', {
+                title: 'PhD in data science and knowledge graphs',
+                country: 'Malaysia',
+                location: 'Kuala Lumpur, Malaysia',
+                description: 'Fully funded doctoral studentship. English is the working language.',
               }),
               fundedItem('in', {
                 title: 'PhD in machine learning',
@@ -167,16 +276,16 @@ describe('PhD discovery', () => {
 
     try {
       const run = await request(app).post('/api/phd/search').send({}).expect(201);
-      expect(run.body.discovered).toBe(6);
-      expect(run.body.created).toBe(2);
+      expect(run.body.discovered).toBe(7);
+      expect(run.body.created).toBe(3);
       expect(run.body.filteredOut).toBe(4);
 
       const list = await request(app).get('/api/phd/positions?limit=50').expect(200);
-      expect(list.body.total).toBe(2);
+      expect(list.body.total).toBe(3);
       const countries = list.body.items
         .map((item: { country: string }) => item.country)
         .sort();
-      expect(countries).toEqual(['Canada', 'Turkey']);
+      expect(countries).toEqual(['Canada', 'Malaysia', 'Turkey']);
       for (const item of list.body.items as Array<{ fundingStatus: string }>) {
         expect(item.fundingStatus).toBe('funded');
       }
@@ -292,7 +401,7 @@ describe('PhD matching and letters', () => {
     expect(await PhdMatchModel.countDocuments()).toBe(0);
 
     const list = await request(app).get('/api/phd/positions?limit=50').expect(200);
-    expect(list.body.items).toHaveLength(5);
+    expect(list.body.items).toHaveLength(9);
     for (const item of list.body.items as Array<{
       bestMatch: { score: number; explanation: string } | null;
     }>) {
@@ -306,7 +415,7 @@ describe('PhD matching and letters', () => {
       .get(`/api/phd/positions/${list.body.items[0].id}`)
       .expect(200);
     expect(detail.body.matches).toHaveLength(3);
-    expect(await PhdMatchModel.countDocuments()).toBe(15);
+    expect(await PhdMatchModel.countDocuments()).toBe(27);
   });
 
   it('scores topic evidence without inventing a probability', async () => {

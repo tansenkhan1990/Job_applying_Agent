@@ -3,7 +3,8 @@ import { JobModel } from '../../models/Job.js';
 import { CandidateProfileModel } from '../../models/CandidateProfile.js';
 import { getSettings } from '../settingsService.js';
 import { logger } from '../../utils/logger.js';
-import { conflict, AppError } from '../../utils/errors.js';
+import { AppError } from '../../utils/errors.js';
+import { assertNoRunningRun } from '../searchRuns.js';
 import { withTimeout } from '../../utils/async.js';
 import { adapters, getAdapter } from './adapters/index.js';
 import { applyDeterministicFilters } from './filters.js';
@@ -104,27 +105,11 @@ export interface DiscoveryResult {
   }>;
 }
 
-const STALE_RUN_MS = 15 * 60_000;
-
-async function assertNoRunningRun(): Promise<void> {
-  const staleBefore = new Date(Date.now() - STALE_RUN_MS);
-  await SearchRunModel.updateMany(
-    { status: 'running', startedAt: { $lt: staleBefore } },
-    { $set: { status: 'failed', finishedAt: new Date(), errors: ['Run timed out or the process stopped'] } },
-  );
-  const running = await SearchRunModel.findOne({ status: 'running' });
-  if (running) {
-    throw conflict('A job search is already running. Wait for it to finish.', {
-      runId: String(running._id),
-    });
-  }
-}
-
 export async function runDiscovery(options: {
   trigger: 'manual' | 'scheduled';
   overrides?: DiscoveryOverrides;
 }): Promise<DiscoveryResult> {
-  await assertNoRunningRun();
+  await assertNoRunningRun('jobs');
 
   const settings = await getSettings();
   const profiles = await CandidateProfileModel.find({

@@ -6,6 +6,7 @@ import { CoverLetterModel } from '../models/CoverLetter.js';
 import { objectIdSchema, profileKindSchema } from '../schemas.js';
 import { paginationSchema, parsePagination, paginated } from '../utils/pagination.js';
 import { serialize } from '../utils/serialize.js';
+import { escapeRegExp } from '../utils/text.js';
 import { notFound } from '../utils/errors.js';
 import { runPhdDiscovery } from '../services/phd/discovery.js';
 import { phdAdapters, phdSourceStatuses } from '../services/phd/adapters/index.js';
@@ -34,6 +35,8 @@ export const phdRouter = Router();
 const listQuery = paginationSchema.extend({
   q: z.string().max(200).optional(),
   country: z.string().max(80).optional(),
+  // Every work arrangement is in scope by default; this only narrows an explicit request.
+  workArrangement: z.enum(['remote', 'hybrid', 'onsite', 'unknown']).optional(),
   languageDecision: z.enum(['Eligible', 'Excluded', 'Needs Review']).optional(),
   status: z.enum(['active', 'expired', 'closed', 'duplicate']).optional(),
   saved: z.enum(['true', 'false']).optional(),
@@ -110,7 +113,8 @@ phdRouter.get('/positions', async (req, res) => {
   const filter: Record<string, unknown> = {};
   const now = new Date();
   const todayStart = startOfUtcDay(now);
-  if (query.country) filter.country = { $regex: query.country, $options: 'i' };
+  if (query.country) filter.country = { $regex: escapeRegExp(query.country), $options: 'i' };
+  if (query.workArrangement) filter.workArrangement = query.workArrangement;
   if (query.languageDecision) {
     filter.languageDecision = query.languageDecision;
   } else if (settings.phd.excludeGermanRequired) {
@@ -123,7 +127,7 @@ phdRouter.get('/positions', async (req, res) => {
   if (query.researchArea) filter.researchArea = query.researchArea;
   else filter.researchArea = { $in: [...PHD_TARGET_RESEARCH_AREAS] };
   if (query.institution) {
-    filter.institution = { $regex: query.institution, $options: 'i' };
+    filter.institution = { $regex: escapeRegExp(query.institution), $options: 'i' };
   }
   if (query.status) filter.status = query.status;
 
@@ -170,21 +174,25 @@ phdRouter.get('/positions', async (req, res) => {
   if (query.saved === 'true') filter.saved = true;
   if (query.reviewed === 'false') filter.reviewedAt = null;
   if (query.reviewed === 'true') filter.reviewedAt = { $ne: null };
+  // Free-text filters are escaped so they match literally; a topic such as "C++" or a title
+  // with brackets can be searched for without turning the request into an invalid pattern.
   if (query.topic) {
+    const topic = escapeRegExp(query.topic);
     filter.$or = [
-      { researchTopic: { $regex: query.topic, $options: 'i' } },
-      { title: { $regex: query.topic, $options: 'i' } },
+      { researchTopic: { $regex: topic, $options: 'i' } },
+      { title: { $regex: topic, $options: 'i' } },
     ];
   }
   if (query.q) {
+    const pattern = escapeRegExp(query.q);
     filter.$and = [
       ...((filter.$and as unknown[]) ?? []),
       {
         $or: [
-          { title: { $regex: query.q, $options: 'i' } },
-          { institution: { $regex: query.q, $options: 'i' } },
-          { researchTopic: { $regex: query.q, $options: 'i' } },
-          { location: { $regex: query.q, $options: 'i' } },
+          { title: { $regex: pattern, $options: 'i' } },
+          { institution: { $regex: pattern, $options: 'i' } },
+          { researchTopic: { $regex: pattern, $options: 'i' } },
+          { location: { $regex: pattern, $options: 'i' } },
         ],
       },
     ];

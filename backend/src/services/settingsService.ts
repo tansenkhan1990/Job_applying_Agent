@@ -69,9 +69,37 @@ export async function getSettings(): Promise<AppSettings> {
     const revalidated = settingsSchema.safeParse(fallback);
     const value = revalidated.success ? revalidated.data : defaultSettings();
     await AppSettingModel.updateOne({ key: 'global' }, { $set: { value } });
-    return migrateSettings(value, normalized.hadLegacyValue);
+    return migratePhdSimulatedSource(
+      doc,
+      migrateSettings(value, normalized.hadLegacyValue),
+    );
   }
-  return migrateSettings(parsed.data as AppSettings, normalized.hadLegacyValue);
+  return migratePhdSimulatedSource(
+    doc,
+    migrateSettings(parsed.data as AppSettings, normalized.hadLegacyValue),
+  );
+}
+
+/**
+ * Older builds disabled the simulated PhD source (`ENABLE_MOCK_SOURCE=false`) with no live feed
+ * configured, so every search failed with "No PhD sources are enabled and configured". Enable it
+ * once for existing installations so the PhD workspace works out of the box. The flag on the
+ * settings document makes this a one-time migration, so a later manual disable is respected.
+ */
+async function migratePhdSimulatedSource(
+  doc: { migrations?: { phdSimulatedSource?: boolean } } | null,
+  settings: AppSettings,
+): Promise<AppSettings> {
+  if (doc?.migrations?.phdSimulatedSource) return settings;
+
+  const update: Record<string, unknown> = { 'migrations.phdSimulatedSource': true };
+  const mockEnabled = settings.sources.phd_mock?.enabled ?? false;
+  if (!mockEnabled && !env.PHD_FEED_URL.trim()) {
+    settings.sources.phd_mock = { enabled: true };
+    update['value.sources.phd_mock.enabled'] = true;
+  }
+  await AppSettingModel.updateOne({ key: 'global' }, { $set: update }).catch(() => undefined);
+  return settings;
 }
 
 /**

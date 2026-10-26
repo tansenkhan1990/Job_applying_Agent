@@ -9,6 +9,11 @@ const appSettingSchema = new Schema(
       acquiredAt: { type: Date, default: null },
       expiresAt: { type: Date, default: null },
     },
+    // One-time data migrations already applied to `value`, tracked outside it so a user's
+    // later choice is never overwritten on the next read.
+    migrations: {
+      phdSimulatedSource: { type: Boolean, default: false },
+    },
   },
   { timestamps: true },
 );

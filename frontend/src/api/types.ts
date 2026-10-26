@@ -524,7 +524,7 @@ export interface ChatSendResponse {
 export interface SearchRun {
   id: string;
   status: 'running' | 'completed' | 'failed';
-  trigger: 'manual' | 'scheduled';
+  trigger: 'manual' | 'scheduled' | 'startup';
   sources: Array<{
     source: string;
     status: 'ok' | 'failed' | 'skipped';

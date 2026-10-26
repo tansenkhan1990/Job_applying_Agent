@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Seniority, WorkArrangement } from '../../config/defaults.js';
-import { normalizeForMatch, normalizeWhitespace, stripHtml } from '../../utils/text.js';
+import { escapeRegExp, normalizeForMatch, normalizeWhitespace, stripHtml } from '../../utils/text.js';
 import { classifyLanguage, type LanguageClassification } from './language.js';
 import { assessJobAge } from './age.js';
 import type { JobListing, LanguageRequirement } from './types.js';
@@ -90,6 +90,11 @@ export function contentHash(listing: Pick<JobListing, 'title' | 'description' | 
     .digest('hex');
 }
 
+/**
+ * German cities used to recognise a location that omits the country. Entries are compared the
+ * same way the advertised location is normalized, so an umlaut spelling such as "München"
+ * matches its own entry instead of silently failing.
+ */
 const GERMAN_CITIES = [
   'berlin',
   'munich',
@@ -104,6 +109,7 @@ const GERMAN_CITIES = [
   'leipzig',
   'dresden',
   'hannover',
+  'hanover',
   'nuremberg',
   'nürnberg',
   'karlsruhe',
@@ -136,6 +142,7 @@ const GERMAN_CITIES = [
   'würzburg',
   'wuerzburg',
   'braunschweig',
+  'brunswick',
   'kassel',
   'erfurt',
   'magdeburg',
@@ -165,9 +172,139 @@ const GERMAN_CITIES = [
   'heilbronn',
   'pforzheim',
   'wolfsburg',
+  // Further cities that appear in German job feeds without a country. Keeping the list broad
+  // is what stops a legitimate German vacancy from being dropped as "location unknown".
+  'duisburg',
+  'bochum',
+  'wuppertal',
+  'mönchengladbach',
+  'gelsenkirchen',
+  'krefeld',
+  'oberhausen',
+  'hagen',
+  'hamm',
+  'herne',
+  'mülheim',
+  'duesseldorf',
+  'solingen',
+  'leverkusen',
+  'neuss',
+  'moers',
+  'düren',
+  'iserlohn',
+  'minden',
+  'gütersloh',
+  'lippstadt',
+  'bocholt',
+  'detmold',
+  'hildesheim',
+  'salzgitter',
+  'celle',
+  'goslar',
+  'wilhelmshaven',
+  'emden',
+  'lüneburg',
+  'cuxhaven',
+  'flensburg',
+  'neumünster',
+  'norderstedt',
+  'schwerin',
+  'neubrandenburg',
+  'stralsund',
+  'greifswald',
+  'wismar',
+  'witten',
+  'gera',
+  'zwickau',
+  'plauen',
+  'görlitz',
+  'halle',
+  'dessau',
+  'fürth',
+  'erlangen',
+  'bamberg',
+  'bayreuth',
+  'coburg',
+  'aschaffenburg',
+  'schweinfurt',
+  'ansbach',
+  'landshut',
+  'passau',
+  'rosenheim',
+  'kempten',
+  'kaufbeuren',
+  'dachau',
+  'dingolfing',
+  'mühldorf',
+  'freising',
+  'fürstenfeldbruck',
+  'amberg',
+  'weiden',
+  'ludwigsburg',
+  'esslingen',
+  'reutlingen',
+  'villingen-schwenningen',
+  'konstanz',
+  'baden-baden',
+  'ludwigshafen',
+  'kaiserslautern',
+  'worms',
+  'fulda',
+  'wetzlar',
+  'ruesselsheim',
+  'rüsselsheim',
+  'gummersbach',
+  'troisdorf',
+  'bergisch gladbach',
+  'hürth',
+  'kerpen',
+  'euskirchen',
+  'böblingen',
+  'weimar',
+  'gotha',
+  'eisenach',
+  'suhl',
+  'halberstadt',
+  'stendal',
+  'wernigerode',
+  'frankfurt oder',
+  'brandenburg an der havel',
+  'eisenhüttenstadt',
+  'neumarkt',
+  'straubing',
+  'deggendorf',
+  'memmingen',
+  'neu-ulm',
+  'günzburg',
   'remote germany',
   'deutschland',
   'germany',
+];
+
+/** German federal states, which appear as the only location hint in some advertisements. */
+const GERMAN_STATES = [
+  'baden-württemberg',
+  'bavaria',
+  'bayern',
+  'brandenburg',
+  'hesse',
+  'hessen',
+  'lower saxony',
+  'mecklenburg-vorpommern',
+  'niedersachsen',
+  'north rhine-westphalia',
+  'nordrhein-westfalen',
+  'nrw',
+  'rhineland-palatinate',
+  'rheinland-pfalz',
+  'saarland',
+  'sachsen',
+  'sachsen-anhalt',
+  'saxony',
+  'saxony-anhalt',
+  'schleswig-holstein',
+  'thüringen',
+  'thuringia',
 ];
 
 // Cities that are outside Germany. Recognising them prevents an unlabelled city from being
@@ -259,8 +396,33 @@ const NON_EU_CITIES = [
   'mexico city',
 ];
 
-const EU_CITY_PATTERN = new RegExp(`\\b(${EU_CITIES.join('|')})\\b`);
-const NON_EU_CITY_PATTERN = new RegExp(`\\b(${NON_EU_CITIES.join('|')})\\b`);
+/**
+ * Every spelling an entry can appear as in a feed: the entry itself after the same
+ * normalization that is applied to the advertised location, plus the "ue/oe/ae/ss"
+ * transliteration German employers commonly type ("Muenchen" for "München").
+ */
+function locationVariants(entry: string): string[] {
+  const lower = entry.toLowerCase();
+  const transliterated = lower
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss');
+  return [normalizeForMatch(lower), normalizeForMatch(transliterated)].filter(Boolean);
+}
+
+/**
+ * Builds a word-boundary pattern from a set of place names. Word boundaries stop a short entry
+ * such as "kiel" from matching an unrelated city such as "Kielce".
+ */
+function locationPattern(entries: string[]): RegExp {
+  const alternatives = [...new Set(entries.flatMap(locationVariants))].map(escapeRegExp);
+  return new RegExp(`\\b(?:${alternatives.join('|')})\\b`);
+}
+
+const GERMAN_LOCATION_PATTERN = locationPattern([...GERMAN_CITIES, ...GERMAN_STATES]);
+const EU_CITY_PATTERN = locationPattern(EU_CITIES);
+const NON_EU_CITY_PATTERN = locationPattern(NON_EU_CITIES);
 const NON_EU_COUNTRY_PATTERN =
   /\b(united states|usa|u\.s\.|canada|india|australia|brazil|philippines|singapore|japan|china|mexico|argentina|south africa|united kingdom|uk|england|scotland|wales)\b/;
 
@@ -348,7 +510,7 @@ const RESTRICTED_HINTS = [
 export function detectCountry(location: string): string {
   const normalized = normalizeForMatch(location);
   if (!normalized) return '';
-  if (GERMAN_CITIES.some((city) => normalized.includes(city))) return 'Germany';
+  if (GERMAN_LOCATION_PATTERN.test(normalized)) return 'Germany';
   if (NON_EU_COUNTRY_PATTERN.test(normalized) || NON_EU_CITY_PATTERN.test(normalized)) {
     return 'Other';
   }
@@ -368,7 +530,7 @@ export function isGermanLocation(location: string): boolean {
   const normalized = normalizeForMatch(location);
   if (!normalized) return false;
   if (/\b(germany|deutschland)\b/.test(normalized)) return true;
-  return GERMAN_CITIES.some((city) => normalized.includes(city));
+  return GERMAN_LOCATION_PATTERN.test(normalized);
 }
 
 export function isEuRemoteLocation(location: string): boolean {

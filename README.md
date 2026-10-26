@@ -19,7 +19,7 @@ and no submission state machine. You decide where to apply and send the applicat
 | Filters for category, date, company, arrangement, language, score, saved state | ✅ tested |
 | Per-job AI chat with job-scoped history | ✅ tested |
 | Job cover letters: generate, edit, regenerate, version, copy, download PDF/DOCX | ✅ tested |
-| Fully funded PhD discovery in AI, cybersecurity, software engineering and data (Europe, Turkey, USA, Canada) | ✅ tested (simulated + configured feed) |
+| Fully funded PhD discovery in AI, cybersecurity, software engineering and data (Europe, Turkey, USA, Canada, Malaysia) | ✅ tested (simulated + configured feed) |
 | PhD deadline eligibility (open / expired / unknown / closed / rolling) | ✅ tested |
 | PhD research-area and profile match scoring (30/25/20/15/10 weights) | ✅ tested |
 | Per-PhD chat and academic cover letters | ✅ tested |
@@ -120,8 +120,9 @@ Backend layers:
    5. Open a job → read the match explanation → **Generate cover letter** → edit, version,
       copy or download. **Ask about this job** keeps a conversation only for that job.
    6. **PhD Opportunities** → enable a source → **Search PhD positions** → filter by area,
-      deadline, funding, institution or score → **Verify deadline** (re-reads the configured
-      source) → generate an academic letter and chat about fit.
+      arrangement (on-site, hybrid or remote), deadline, funding, institution or score →
+      **Verify deadline** (re-reads the configured source) → generate an academic letter and
+      chat about fit.
 
 Optional production-style frontend container:
 
@@ -158,9 +159,11 @@ Scheduling stays off until enabled in **Settings**.
 | **Configured PhD feed** | `PHD_FEED_URL` (permitted JSON) | PhD positions with deadline fields |
 | **Simulated fixtures** | No network, opt-in | Clearly labelled fictional rows for exercising the pipeline |
 
-The simulated job and PhD sources are off by default (`ENABLE_MOCK_SOURCE=false`). If you
-enable them, every row is marked **Simulated fixture** or **simulated** and uses
-`example.com`/`example.org` links. They are never presented as live opportunities.
+The simulated job source is off by default (`ENABLE_MOCK_SOURCE=false`). The simulated PhD
+source is on by default, because the PhD workspace has no live source until `PHD_FEED_URL` is
+set; it can be switched off in the PhD page. Every simulated row is marked **Simulated fixture**
+or **simulated** and uses `example.com`/`example.org` links, so it is never presented as a live
+opportunity.
 
 There is no HTML scraper, CAPTCHA bypass or authenticated scraping. A failing source never
 deletes stored rows; the error is shown per source and on the overview page.
@@ -233,8 +236,8 @@ profile match, not an admission probability.
 - Expired and closed/filled positions are excluded from normal results.
 - Unknown deadlines are **not** assumed open: they appear only in the separate
   **Deadline needs verification** group.
-- Only positions in **Europe, Turkey, the USA and Canada** are stored. Anything elsewhere is
-  dropped at discovery, whatever the work arrangement.
+- Only positions in **Europe, Turkey, the USA, Canada and Malaysia** are stored. Anything
+  elsewhere is dropped at discovery, whatever the work arrangement.
 - Only positions whose advertisement **explicitly evidences funding** (funded position,
   salary, stipend, scholarship, doctoral contract, TV-L/E13 pay) are stored. A position that
   says funding must be secured by the applicant, or says nothing, is excluded; the
@@ -337,7 +340,7 @@ language filters, simulated-fixture labelling, and frontend filter/sort query co
 | Documents missing | Confirm `./documents` exists and contains PDF/DOCX files; press **Rescan** |
 | PDF has no text | It is probably scanned; OCR is not included |
 | "No job sources are enabled" | Enable at least one source in **Settings** |
-| No PhD results | Enable the simulated source for a demo, or set `PHD_FEED_URL` to a permitted feed |
+| No PhD results | Enable the simulated source in the PhD page, or set `PHD_FEED_URL` to a permitted feed. An empty store is seeded automatically at startup; results are on-site, hybrid and remote positions in Europe, Turkey, the USA, Canada and Malaysia whose deadline has not passed |
 | AI actions return a model error | Set `OPENROUTER_API_KEY`, choose a model in Settings, press **Test connection** |
 | Frontend cannot reach the API | Run Vite on the host (`npm run dev`), or use the `frontend` Compose profile |
 
@@ -372,7 +375,10 @@ publishes them.
   default.
 - **Live AI calls are not part of the test suite.** Tests inject deterministic or mocked
   responses; a configured OpenRouter key is exercised only by using the app.
-- **Location and language classification are heuristic.** Every row shows the evidence used
+- **Location and language classification are heuristic.** Country detection uses a curated
+  list of German cities and federal states, the common `München`/`Muenchen` spellings, and
+  patterns for foreign cities. A vacancy in a small town whose location omits the country can
+  still be dropped as "location unknown" rather than guessed. Every row shows the evidence used
   and flags ambiguous cases for review.
 - **No auto-submission, no OCR, no CAPTCHA bypass.** These are deliberate.
 - **PhD deadline verification only works for the configured feed.** University career pages

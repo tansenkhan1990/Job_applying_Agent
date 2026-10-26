@@ -2,6 +2,7 @@ import type { Types } from 'mongoose';
 import { SearchRunModel } from '../../models/SearchRun.js';
 import { PhdPositionModel } from '../../models/PhdPosition.js';
 import { getSettings } from '../settingsService.js';
+import { assertNoRunningRun } from '../searchRuns.js';
 import { withTimeout } from '../../utils/async.js';
 import { AppError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
@@ -120,8 +121,10 @@ async function upsertPositions(
 }
 
 export async function runPhdDiscovery(options: {
-  trigger?: 'manual' | 'scheduled';
+  trigger?: 'manual' | 'scheduled' | 'startup';
 } = {}): Promise<PhdDiscoveryResult> {
+  await assertNoRunningRun('phd');
+
   const settings = await getSettings();
   const enabled = phdAdapters.filter(
     (adapter) => (settings.sources[adapter.id]?.enabled ?? false) && adapter.isConfigured(),

@@ -23,6 +23,7 @@ import {
   listJobLetters,
   setJobLetterPreferences,
 } from '../services/coverLetters/jobLetters.js';
+import { escapeRegExp } from '../utils/text.js';
 import { classifyLanguage } from '../services/jobs/language.js';
 import { assessJobAge, effectiveMaxAgeMonths, jobAgeCutoff } from '../services/jobs/age.js';
 import { getSettings } from '../services/settingsService.js';
@@ -178,11 +179,15 @@ jobsRouter.get('/', async (req, res) => {
     // when the caller supplies a broad or custom date range.
     filter.postedAt = { ...(filter.postedAt as object), $ne: null };
   }
-  if (query.employer) filter.employer = { $regex: query.employer, $options: 'i' };
+  // Every free-text filter is escaped: the user's text is matched literally, so a title such
+  // as "C++ Developer" can be searched for and a stray bracket cannot break the query.
+  if (query.employer) filter.employer = { $regex: escapeRegExp(query.employer), $options: 'i' };
   if (query.seniority) filter.seniority = query.seniority;
-  if (query.employmentType) filter.employmentType = { $regex: query.employmentType, $options: 'i' };
+  if (query.employmentType) {
+    filter.employmentType = { $regex: escapeRegExp(query.employmentType), $options: 'i' };
+  }
   if (query.workArrangement) filter.workArrangement = query.workArrangement;
-  if (query.country) filter.country = { $regex: query.country, $options: 'i' };
+  if (query.country) filter.country = { $regex: escapeRegExp(query.country), $options: 'i' };
   if (query.remoteEligibleFromGermany === 'true') filter.remoteEligibleFromGermany = true;
   if (query.remoteEligibleFromGermany === 'false') filter.remoteEligibleFromGermany = false;
   // salaryMax is the upper bound of the advertised range; only use it when the source
@@ -206,10 +211,11 @@ jobsRouter.get('/', async (req, res) => {
     filter.$and = [...((filter.$and as unknown[]) ?? []), { _id: clause }];
   }
   if (query.q) {
+    const pattern = escapeRegExp(query.q);
     filter.$or = [
-      { title: { $regex: query.q, $options: 'i' } },
-      { employer: { $regex: query.q, $options: 'i' } },
-      { location: { $regex: query.q, $options: 'i' } },
+      { title: { $regex: pattern, $options: 'i' } },
+      { employer: { $regex: pattern, $options: 'i' } },
+      { location: { $regex: pattern, $options: 'i' } },
     ];
   }
 

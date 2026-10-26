@@ -58,6 +58,7 @@ export function PhdPage() {
   const [researchArea, setResearchArea] = useState('');
   const [institution, setInstitution] = useState('');
   const [country, setCountry] = useState('');
+  const [arrangement, setArrangement] = useState('');
   const [deadlineGroup, setDeadlineGroup] = useState<DeadlineGroup>('open');
   const [deadlineWindow, setDeadlineWindow] = useState('');
   const [scoreBand, setScoreBand] = useState<ScoreBand>('');
@@ -75,6 +76,7 @@ export function PhdPage() {
     researchArea,
     institution,
     country,
+    arrangement: arrangement as '' | 'remote' | 'hybrid' | 'onsite',
     deadlineGroup,
     deadlineWindow,
     scoreBand,
@@ -157,7 +159,7 @@ export function PhdPage() {
     <div className="space-y-5">
       <PageHeader
         title="PhD opportunities"
-        description="Fully funded doctoral positions in Europe, Turkey, the USA and Canada, restricted to artificial intelligence, cybersecurity, software engineering and data. Scores are estimated profile matches, not admission probabilities."
+        description="Fully funded doctoral positions in Europe, Turkey, the USA, Canada and Malaysia, on-site, hybrid or remote, restricted to artificial intelligence, cybersecurity, software engineering and data. Scores are estimated profile matches, not admission probabilities."
         actions={
           <Button variant="primary" onClick={() => discover.mutate()} loading={discover.isPending}>
             Search PhD positions
@@ -167,7 +169,7 @@ export function PhdPage() {
 
       <Card
         title="PhD sources"
-        subtitle="Only fully funded positions in Europe, Turkey, the USA and Canada are stored; everything outside AI, cybersecurity, software engineering and data is dropped."
+        subtitle="Only fully funded positions in Europe, Turkey, the USA, Canada and Malaysia are stored, on-site, hybrid or remote; everything outside AI, cybersecurity, software engineering and data is dropped."
       >
         <div className="space-y-2">
           {(sources.data ?? []).map((source) => (
@@ -274,6 +276,21 @@ export function PhdPage() {
                 setPage(1);
               }}
             />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-slate-400">
+            Work arrangement
+            <Select
+              value={arrangement}
+              onChange={(event) => {
+                setArrangement(event.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">All arrangements</option>
+              <option value="onsite">On-site</option>
+              <option value="hybrid">Hybrid</option>
+              <option value="remote">Remote</option>
+            </Select>
           </label>
           <label className="flex flex-col gap-1 text-[11px] text-slate-400">
             Deadline group
@@ -420,6 +437,7 @@ export function PhdPage() {
                 setResearchArea('');
                 setInstitution('');
                 setCountry('');
+                setArrangement('');
                 setDeadlineGroup('open');
                 setDeadlineWindow('');
                 setScoreBand('');

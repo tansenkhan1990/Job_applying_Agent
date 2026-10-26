@@ -147,6 +147,31 @@ describe('geographic eligibility', () => {
     expect(detectCountry('Zurich, Switzerland')).toBe('European Union');
   });
 
+  it('recognises German cities written without the country, including umlaut spellings', () => {
+    for (const location of [
+      'München',
+      'Muenchen',
+      'Köln',
+      'Nürnberg',
+      'Hanover',
+      'Hagen',
+      'Dingolfing, Bavaria',
+      'Ludwigsburg',
+      'Mühldorf am Inn',
+      'Tübingen',
+      'Georgsmarienhütte',
+    ]) {
+      expect(detectCountry(location), location).toBe('Germany');
+    }
+  });
+
+  it('does not read a German city name out of an unrelated city', () => {
+    // "kiel" must not match "Kielce", and "ulm" must not match "Ulmerton".
+    expect(detectCountry('Kielce, Poland')).toBe('European Union');
+    expect(detectCountry('Vienna, Austria')).toBe('European Union');
+    expect(detectCountry('Kiel')).toBe('Germany');
+  });
+
   it('excludes hybrid and on-site roles outside Germany', () => {
     for (const [location, arrangement] of [
       ['Paris', 'hybrid'],

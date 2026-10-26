@@ -224,11 +224,12 @@ export function JobsPage() {
               value={filters.postedWindow}
               onChange={(event) => patch({ postedWindow: event.target.value as JobFilters['postedWindow'] })}
             >
-              <option value="">Any time</option>
+              <option value="">Any date</option>
               <option value="1">Last 24 hours</option>
+              <option value="3">Last 3 days</option>
               <option value="7">Last 7 days</option>
               <option value="14">Last 14 days</option>
-              <option value="30">Last 30 days</option>
+              <option value="30">Last 1 month</option>
               <option value="90">Last 90 days</option>
               <option value="3m">Last 3 months (maximum window)</option>
               <option value="custom">Custom range</option>

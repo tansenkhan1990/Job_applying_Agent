@@ -7,6 +7,7 @@ import { getSettings } from './services/settingsService.js';
 import { rescanDocuments } from './services/documents/ingestion.js';
 import { startScheduler } from './services/scheduler.js';
 import { backfillPhdMetadata } from './services/phd/metadata.js';
+import { seedPhdPositionsIfEmpty } from './services/phd/bootstrap.js';
 
 async function main(): Promise<void> {
   await connectDb();
@@ -18,6 +19,9 @@ async function main(): Promise<void> {
       'PhD metadata backfill failed',
     );
   });
+
+  // A fresh install would otherwise show an empty PhD page until the first manual search.
+  await seedPhdPositionsIfEmpty();
 
   const app = createApp();
   const server = app.listen(env.PORT, '0.0.0.0', () => {

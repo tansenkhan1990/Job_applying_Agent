@@ -17,7 +17,8 @@ export interface JobFilters {
   profileKind: string;
   scoreBand: JobScoreBand;
   languageFilter: JobLanguageFilter;
-  postedWindow: '' | '1' | '7' | '14' | '30' | '90' | '3m' | 'custom';
+  /** Empty is "any date": the mandatory three-calendar-month window still applies. */
+  postedWindow: '' | '1' | '3' | '7' | '14' | '30' | '90' | '3m' | 'custom';
   postedFrom: string;
   postedTo: string;
   dateEvidence: JobDateEvidence;
@@ -133,6 +134,8 @@ export interface PhdQueryInput {
   researchArea: string;
   institution: string;
   country: string;
+  /** Empty means every work arrangement: on-site, hybrid and remote are all in scope. */
+  arrangement: '' | 'remote' | 'hybrid' | 'onsite';
   deadlineGroup: PhdDeadlineGroup;
   deadlineWindow: string;
   scoreBand: PhdScoreBand;
@@ -152,6 +155,7 @@ export function buildPhdListQuery(input: PhdQueryInput, limit = 20): URLSearchPa
   if (input.researchArea) params.set('researchArea', input.researchArea);
   if (input.institution.trim()) params.set('institution', input.institution.trim());
   if (input.country.trim()) params.set('country', input.country.trim());
+  if (input.arrangement) params.set('workArrangement', input.arrangement);
   if (input.deadlineGroup !== 'open') params.set('deadlineStatus', input.deadlineGroup);
   if (input.deadlineWindow) params.set('deadlineWithinDays', input.deadlineWindow);
 

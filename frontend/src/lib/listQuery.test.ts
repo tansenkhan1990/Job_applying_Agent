@@ -19,6 +19,7 @@ function phd(overrides: Partial<PhdQueryInput> = {}): PhdQueryInput {
     researchArea: '',
     institution: '',
     country: '',
+    arrangement: '',
     deadlineGroup: 'open',
     deadlineWindow: '',
     scoreBand: '',
@@ -97,8 +98,17 @@ describe('job list query builder', () => {
   });
 
   it('maps relative and custom posting-date ranges', () => {
+    // "Any date" is the absence of a window; the backend three-month cap still applies.
+    expect(buildJobListQuery(filters({ postedWindow: '' }), '', 1).get('postedWithinDays')).toBeNull();
+    expect(
+      buildJobListQuery(filters({ postedWindow: '3' }), '', 1).get('postedWithinDays'),
+    ).toBe('3');
+
     const recent = buildJobListQuery(filters({ postedWindow: '7' }), '', 1);
     expect(recent.get('postedWithinDays')).toBe('7');
+    expect(buildJobListQuery(filters({ postedWindow: '30' }), '', 1).get('postedWithinDays')).toBe(
+      '30',
+    );
 
     const custom = buildJobListQuery(
       filters({ postedWindow: 'custom', postedFrom: '2026-09-01', postedTo: '2026-10-01' }),
@@ -167,6 +177,12 @@ describe('PhD list query builder', () => {
     expect(params.get('country')).toBe('Germany');
     expect(params.get('deadlineStatus')).toBe('unknown');
     expect(params.get('deadlineWithinDays')).toBe('30');
+  });
+
+  it('leaves the work arrangement open unless one is requested', () => {
+    expect(buildPhdListQuery(phd()).get('workArrangement')).toBeNull();
+    expect(buildPhdListQuery(phd({ arrangement: 'onsite' })).get('workArrangement')).toBe('onsite');
+    expect(buildPhdListQuery(phd({ arrangement: 'hybrid' })).get('workArrangement')).toBe('hybrid');
   });
 
   it('maps funding, language, score, saved, review and letter filters', () => {

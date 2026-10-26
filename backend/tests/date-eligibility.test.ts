@@ -427,3 +427,61 @@ describe('three-month cap cannot be widened', () => {
     expect(accepted.body.settings.search.maxAgeMonths).toBe(3);
   });
 });
+
+describe('quick posting-date windows', () => {
+  async function seedPostingWindows() {
+    const [sample] = await mockAdapter.searchJobs(criteria);
+    const base = {
+      ...sample,
+      employer: 'Posting Window Examples GmbH',
+      description: 'English is the working language.',
+    };
+    const seedAt = (sourceJobId: string, daysAgo: number) =>
+      seedJob(
+        {
+          ...base,
+          sourceJobId,
+          url: `https://example.org/posting-windows/${sourceJobId}`,
+          postedAt: new Date(Date.now() - daysAgo * day),
+          expiresAt: null,
+        },
+        { fingerprint: `${sourceJobId}-fingerprint` },
+      );
+    return {
+      twoDays: await seedAt('window-2d', 2),
+      fiveDays: await seedAt('window-5d', 5),
+      twentyDays: await seedAt('window-20d', 20),
+      halfYear: await seedAt('window-180d', 180),
+    };
+  }
+
+  it('narrows to the requested window and keeps every eligible date for "any date"', async () => {
+    const { twoDays, fiveDays, twentyDays, halfYear } = await seedPostingWindows();
+    const idsAt = async (query: string) => {
+      const response = await request(app).get(`/api/jobs?limit=50&${query}`).expect(200);
+      return response.body.items.map((item: { id: string }) => item.id);
+    };
+
+    const threeDays = await idsAt('postedWithinDays=3');
+    expect(threeDays).toContain(String(twoDays._id));
+    expect(threeDays).not.toContain(String(fiveDays._id));
+    expect(threeDays).not.toContain(String(twentyDays._id));
+
+    const sevenDays = await idsAt('postedWithinDays=7');
+    expect(sevenDays).toContain(String(twoDays._id));
+    expect(sevenDays).toContain(String(fiveDays._id));
+    expect(sevenDays).not.toContain(String(twentyDays._id));
+
+    // One month is sent as 30 days, matching the existing day-based windows.
+    const oneMonth = await idsAt('postedWithinDays=30');
+    expect(oneMonth).toContain(String(twentyDays._id));
+    expect(oneMonth).not.toContain(String(halfYear._id));
+
+    // "Any date" sends no window at all; the mandatory three-calendar-month cap still applies.
+    const anyDate = await idsAt('sort=newest');
+    expect(anyDate).toContain(String(twoDays._id));
+    expect(anyDate).toContain(String(fiveDays._id));
+    expect(anyDate).toContain(String(twentyDays._id));
+    expect(anyDate).not.toContain(String(halfYear._id));
+  });
+});

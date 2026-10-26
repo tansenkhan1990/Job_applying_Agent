@@ -189,9 +189,10 @@ export const PHD_TARGET_COUNTRIES = new Set<string>([
   'Turkey',
   'United States',
   'Canada',
+  'Malaysia',
 ]);
 
-export const PHD_TARGET_REGIONS_LABEL = 'Europe, Turkey, the USA and Canada';
+export const PHD_TARGET_REGIONS_LABEL = 'Europe, Turkey, the USA, Canada and Malaysia';
 
 const COUNTRY_ALIASES: Array<[string, string]> = [
   ...EUROPE_COUNTRIES.map((country): [string, string] => [country.toLowerCase(), country]),
@@ -234,6 +235,7 @@ const COUNTRY_ALIASES: Array<[string, string]> = [
   ['turkiye', 'Turkey'],
   ['türkiye', 'Turkey'],
   ['republic of turkey', 'Turkey'],
+  ['malaysia', 'Malaysia'],
 ];
 
 const COUNTRY_ALIAS_LOOKUP = new Map(
@@ -399,6 +401,18 @@ const CITY_COUNTRY: Array<[string, string]> = [
   ['calgary', 'Canada'],
   ['halifax', 'Canada'],
   ['winnipeg', 'Canada'],
+  ['kuala lumpur', 'Malaysia'],
+  ['putrajaya', 'Malaysia'],
+  ['cyberjaya', 'Malaysia'],
+  ['penang', 'Malaysia'],
+  ['george town', 'Malaysia'],
+  ['johor bahru', 'Malaysia'],
+  ['serdang', 'Malaysia'],
+  ['skudai', 'Malaysia'],
+  ['bangi', 'Malaysia'],
+  ['shah alam', 'Malaysia'],
+  ['kota kinabalu', 'Malaysia'],
+  ['kuching', 'Malaysia'],
 ];
 
 /** Canonical country name for a feed value, or the trimmed original when unrecognised. */
@@ -561,7 +575,8 @@ export function normalizePhdListing(raw: RawPhdListing): PhdListing | null {
 }
 
 /**
- * Only doctoral positions in Europe, Turkey, the USA and Canada are in scope, whatever the work
+ * Only doctoral positions in Europe, Turkey, the USA, Canada and Malaysia are in scope, whatever
+ * the work
  * arrangement. A position whose country cannot be established is not guessed into the list.
  */
 export function passesPhdLocationRule(listing: PhdListing): { included: boolean; reason: string } {
