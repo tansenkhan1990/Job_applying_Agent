@@ -504,6 +504,13 @@ export function JobsPage() {
                     {job.remoteEligibleFromGermany === false ? (
                       <Badge tone="danger">Not remote from Germany</Badge>
                     ) : null}
+                    {/* A remote role outside Germany whose eligibility is not stated is kept but
+                        must stay visibly ambiguous rather than look verified. */}
+                    {job.workArrangement === 'remote' &&
+                    job.country !== 'Germany' &&
+                    job.remoteEligibleFromGermany === null ? (
+                      <Badge tone="warning">Remote scope unverified</Badge>
+                    ) : null}
                     <Badge
                       tone={
                         job.ageEligibility === 'Eligible'
