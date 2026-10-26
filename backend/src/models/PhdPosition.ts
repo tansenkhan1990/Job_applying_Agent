@@ -30,7 +30,7 @@ const phdPositionSchema = new Schema(
     researchTopic: { type: String, default: '' },
     researchArea: {
       type: String,
-      enum: ['ai', 'cybersecurity', 'software_engineering', 'other'],
+      enum: ['ai', 'cybersecurity', 'software_engineering', 'data', 'other'],
       default: 'other',
       index: true,
     },
@@ -42,6 +42,15 @@ const phdPositionSchema = new Schema(
     requiredMethods: { type: [String], default: [] },
     requiredLanguages: { type: [String], default: [] },
     funding: { type: String, default: '' },
+    // Only an explicit statement in the advertisement counts as funded; silence stays unknown
+    // and is never presented as a funded position.
+    fundingStatus: {
+      type: String,
+      enum: ['funded', 'not_funded', 'unknown'],
+      default: 'unknown',
+      index: true,
+    },
+    fundingEvidence: { type: String, default: '' },
     salary: { type: String, default: '' },
     employmentRequirements: { type: [String], default: [] },
 
@@ -113,6 +122,7 @@ phdPositionSchema.index({ status: 1, discoveredAt: -1 });
 phdPositionSchema.index({ status: 1, applicationDeadline: 1 });
 phdPositionSchema.index({ status: 1, deadlineStatus: 1 });
 phdPositionSchema.index({ researchArea: 1, status: 1 });
+phdPositionSchema.index({ fundingStatus: 1, status: 1 });
 
 phdPositionSchema.set('toJSON', {
   transform: (_doc, ret: Record<string, unknown>) => {

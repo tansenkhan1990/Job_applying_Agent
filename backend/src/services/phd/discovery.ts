@@ -6,6 +6,7 @@ import { withTimeout } from '../../utils/async.js';
 import { AppError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 import { phdAdapters } from './adapters/index.js';
+import { isTargetResearchArea } from './metadata.js';
 import { passesPhdLocationRule } from './normalize.js';
 import type { PhdDiscoveryResult, PhdListing } from './types.js';
 
@@ -37,6 +38,8 @@ function fieldsFor(listing: PhdListing) {
     requiredMethods: listing.requiredMethods,
     requiredLanguages: listing.requiredLanguages,
     funding: listing.funding,
+    fundingStatus: listing.fundingStatus,
+    fundingEvidence: listing.fundingEvidence,
     salary: listing.salary,
     employmentRequirements: listing.employmentRequirements,
     languageRequirement: listing.languageRequirement,
@@ -170,23 +173,32 @@ export async function runPhdDiscovery(options: {
 
     const accepted: PhdListing[] = [];
     const batchUrls = new Set<string>();
+    const rejectionReasons: Record<string, number> = {};
     let filtered = 0;
+    const reject = (reason: string) => {
+      filtered += 1;
+      rejectionReasons[reason] = (rejectionReasons[reason] ?? 0) + 1;
+    };
     for (const listing of listings) {
       if (batchUrls.has(listing.canonicalUrl)) {
-        filtered += 1;
-        continue;
-      }
-      if (listing.country !== 'Germany' && !settings.phd.includeEuRemote) {
-        filtered += 1;
+        reject('duplicate in batch');
         continue;
       }
       const location = passesPhdLocationRule(listing);
       if (!location.included) {
-        filtered += 1;
+        reject('outside the target regions');
+        continue;
+      }
+      if (!isTargetResearchArea(listing.researchArea)) {
+        reject('research area outside AI, cybersecurity, software engineering and data');
+        continue;
+      }
+      if (listing.fundingStatus !== 'funded') {
+        reject('no explicit funding evidence');
         continue;
       }
       if (settings.phd.excludeGermanRequired && listing.languageDecision === 'Excluded') {
-        filtered += 1;
+        reject('German language mandatory');
         continue;
       }
       batchUrls.add(listing.canonicalUrl);
@@ -216,6 +228,7 @@ export async function runPhdDiscovery(options: {
       updated: upsert.updated,
       duplicates: upsert.duplicates,
       filtered,
+      rejectionReasons,
       durationMs: Date.now() - sourceStart,
       error,
     });

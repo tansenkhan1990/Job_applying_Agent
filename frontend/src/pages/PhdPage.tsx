@@ -38,6 +38,7 @@ const RESEARCH_AREA_LABELS: Record<string, string> = {
   ai: 'Artificial Intelligence',
   cybersecurity: 'Cybersecurity',
   software_engineering: 'Software Engineering',
+  data: 'Data & Data Systems',
   other: 'Other research',
 };
 
@@ -107,7 +108,7 @@ export function PhdPage() {
     onSuccess: (result) => {
       const failures = result.sources.filter((source) => source.error);
       toast.success(
-        `PhD discovery: ${result.discovered} found, ${result.created} new, ${result.filteredOut} filtered out.`,
+        `PhD discovery: ${result.discovered} found, ${result.created} new, ${result.updated} refreshed, ${result.filteredOut} filtered out.`,
       );
       for (const failure of failures) toast.error(`${failure.source}: ${failure.error}`);
       void queryClient.invalidateQueries({ queryKey: ['phd-positions'] });
@@ -156,7 +157,7 @@ export function PhdPage() {
     <div className="space-y-5">
       <PageHeader
         title="PhD opportunities"
-        description="Doctoral positions matched to your academic background, research experience, and technical skills. Scores are estimated profile matches, not admission probabilities."
+        description="Fully funded doctoral positions in Europe, Turkey, the USA and Canada, restricted to artificial intelligence, cybersecurity, software engineering and data. Scores are estimated profile matches, not admission probabilities."
         actions={
           <Button variant="primary" onClick={() => discover.mutate()} loading={discover.isPending}>
             Search PhD positions
@@ -164,7 +165,10 @@ export function PhdPage() {
         }
       />
 
-      <Card title="PhD sources" subtitle="Germany-based positions and explicitly Germany-remote EU positions are included.">
+      <Card
+        title="PhD sources"
+        subtitle="Only fully funded positions in Europe, Turkey, the USA and Canada are stored; everything outside AI, cybersecurity, software engineering and data is dropped."
+      >
         <div className="space-y-2">
           {(sources.data ?? []).map((source) => (
             <div
@@ -242,11 +246,11 @@ export function PhdPage() {
                 setPage(1);
               }}
             >
-              <option value="">All relevant areas</option>
+              <option value="">AI, cybersecurity, software & data</option>
               <option value="ai">Artificial Intelligence</option>
               <option value="cybersecurity">Cybersecurity</option>
               <option value="software_engineering">Software Engineering</option>
-              <option value="other">Other relevant research</option>
+              <option value="data">Data &amp; Data Systems</option>
             </Select>
           </label>
           <label className="flex flex-col gap-1 text-[11px] text-slate-400">
@@ -342,9 +346,8 @@ export function PhdPage() {
                 setPage(1);
               }}
             >
-              <option value="">Any funding status</option>
-              <option value="true">Funding or salary stated</option>
-              <option value="false">Funding not stated</option>
+              <option value="">Fully funded only</option>
+              <option value="false">Funding not evidenced (review)</option>
             </Select>
           </label>
           <label className="flex flex-col gap-1 text-[11px] text-slate-400">

@@ -309,7 +309,7 @@ export interface PhdPosition {
   workArrangement: WorkArrangement | 'unknown';
   remoteEligibleFromGermany: boolean | null;
   researchTopic: string;
-  researchArea: 'ai' | 'cybersecurity' | 'software_engineering' | 'other';
+  researchArea: 'ai' | 'cybersecurity' | 'software_engineering' | 'data' | 'other';
   researchAreaEvidence: string;
   description?: string;
   descriptionPreview?: string;
@@ -319,6 +319,8 @@ export interface PhdPosition {
   requiredMethods: string[];
   requiredLanguages: string[];
   funding: string;
+  fundingStatus: 'funded' | 'not_funded' | 'unknown';
+  fundingEvidence: string;
   salary: string;
   employmentRequirements: string[];
   languageRequirement: string;

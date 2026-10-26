@@ -5,17 +5,31 @@ export const PHD_RESEARCH_AREAS = [
   'ai',
   'cybersecurity',
   'software_engineering',
+  'data',
   'other',
 ] as const;
 
 export type PhdResearchArea = (typeof PHD_RESEARCH_AREAS)[number];
 
+/** The research areas this search covers. `other` is outside the scope and is not listed. */
+export const PHD_TARGET_RESEARCH_AREAS = [
+  'ai',
+  'cybersecurity',
+  'software_engineering',
+  'data',
+] as const;
+
 export const PHD_RESEARCH_AREA_LABELS: Record<PhdResearchArea, string> = {
   ai: 'Artificial Intelligence',
   cybersecurity: 'Cybersecurity',
   software_engineering: 'Software Engineering',
+  data: 'Data & Data Systems',
   other: 'Other relevant research',
 };
+
+export function isTargetResearchArea(area: PhdResearchArea): boolean {
+  return area !== 'other';
+}
 
 export const PHD_DEADLINE_STATUSES = ['open', 'expired', 'unknown', 'closed'] as const;
 export type PhdDeadlineStatus = (typeof PHD_DEADLINE_STATUSES)[number];
@@ -70,6 +84,34 @@ const AREA_PATTERNS: AreaPattern[] = [
     ],
   },
   {
+    area: 'data',
+    patterns: [
+      /\bdata science\b/i,
+      /\bdata engineering\b/i,
+      /\bdata mining\b/i,
+      /\bbig data\b/i,
+      /\bdata analytics\b/i,
+      /\bdata management\b/i,
+      /\bdata systems?\b/i,
+      /\bdata integration\b/i,
+      /\bdata quality\b/i,
+      /\bdata-intensive\b/i,
+      /\bdatabases?\b/i,
+      /\bdatabase systems?\b/i,
+      /\bknowledge graphs?\b/i,
+      /\bknowledge bases?\b/i,
+      /\bknowledge infrastructures?\b/i,
+      /\bsemantic web\b/i,
+      /\blinked data\b/i,
+      /\bontolog(?:y|ies)\b/i,
+      /\b(?:rdf|sparql|owl)\b/i,
+      /\bspatio-?temporal\b/i,
+      /\binformation retrieval\b/i,
+      /\brecommender systems?\b/i,
+      /\bdata structures\b/i,
+    ],
+  },
+  {
     area: 'ai',
     patterns: [
       /\bartificial intelligence\b/i,
@@ -86,9 +128,6 @@ const AREA_PATTERNS: AreaPattern[] = [
       /\bretrieval[- ]augmented generation\b/i,
       /\brag\b/i,
       /\bcomputer vision\b/i,
-      /\bdata mining\b/i,
-      /\binformation retrieval\b/i,
-      /\brecommender systems?\b/i,
       /\bai\b/i,
       /\bml\b/i,
     ],
@@ -121,6 +160,67 @@ export function classifyPhdResearchArea(text: string): {
     area: best.area,
     evidence: best.evidence.slice(0, 6).join(', '),
   };
+}
+
+export type PhdFundingStatus = 'funded' | 'not_funded' | 'unknown';
+
+// An advertisement that says funding must be secured elsewhere is not a funded position, even
+// when it also mentions a salary for a different part of the programme.
+const NOT_FUNDED_PATTERNS: RegExp[] = [
+  /\bself[- ]?fund(?:ed|ing)\b/i,
+  /\bunfunded\b/i,
+  /\bnot (?:a )?funded\b/i,
+  /\bpartial(?:ly)?[- ]funded\b/i,
+  /\bpartial funding\b/i,
+  /\bfunding is not (?:available|provided|offered)\b/i,
+  /\bno (?:funding|salary|stipend|scholarship|financial support)\b/i,
+  /\bwithout (?:funding|a salary|financial support)\b/i,
+  /\btuition fees? (?:apply|are not covered|must be paid)\b/i,
+  /\bapplicants? (?:must|are expected to|will need to) (?:secure|arrange|obtain|find) (?:their own )?funding\b/i,
+];
+
+// Evidence that the position itself is paid or funded. A programme name alone is not enough.
+const FUNDED_PATTERNS: RegExp[] = [
+  /\bfully[- ]funded\b/i,
+  /\bfunded (?:position|phd|doctoral|doctorate|studentship|place|for)\b/i,
+  /\bfunding (?:is )?(?:available|provided|secured|included|offered)\b/i,
+  /\b(?:employed|paid) (?:as a )?(?:doctoral|phd) (?:researcher|candidate|student)\b/i,
+  /\b(?:doctoral|research) (?:contract|studentship)\b/i,
+  /\bemployment contract\b/i,
+  /\btv-?l\b/i,
+  /\be1[0-9]\b/i,
+  /\bstipend\b/i,
+  /\bscholarship\b/i,
+  /\bfellowship\b/i,
+  /\b(?:graduate|teaching|research) assistantship\b/i,
+  /\btuition (?:waiver|is covered|fees? (?:are )?(?:waived|covered))\b/i,
+  /\bsalary\b/i,
+  /\b(?:€|eur|£|gbp|\$|usd|cad)\s?\d/i,
+  /\bper (?:month|year|annum)\b/i,
+];
+
+/**
+ * Decide whether the advertisement itself evidences a funded (salaried or stipendiary) doctoral
+ * position. Only an explicit statement counts; silence stays `unknown` rather than being
+ * presented as funded.
+ */
+export function classifyPhdFunding(input: {
+  funding?: string | null;
+  salary?: string | null;
+  description?: string | null;
+}): { status: PhdFundingStatus; evidence: string } {
+  const text = [input.funding ?? '', input.salary ?? '', input.description ?? ''].join('\n');
+  if (!text.trim()) return { status: 'unknown', evidence: '' };
+
+  for (const pattern of NOT_FUNDED_PATTERNS) {
+    const match = text.match(pattern);
+    if (match?.[0]) return { status: 'not_funded', evidence: match[0] };
+  }
+  for (const pattern of FUNDED_PATTERNS) {
+    const match = text.match(pattern);
+    if (match?.[0]) return { status: 'funded', evidence: match[0] };
+  }
+  return { status: 'unknown', evidence: '' };
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -244,6 +344,7 @@ export async function backfillPhdMetadata(): Promise<number> {
   const positions = await PhdPositionModel.find({
     $or: [
       { researchArea: { $exists: false } },
+      { fundingStatus: { $exists: false } },
       { deadlineStatus: { $exists: false } },
       { rollingAdmissions: { $exists: false } },
       { deadlineHasTime: { $exists: false } },
@@ -266,8 +367,15 @@ export async function backfillPhdMetadata(): Promise<number> {
       closed: position.status === 'closed',
       rolling: rollingAdmissions,
     });
+    const funding = classifyPhdFunding({
+      funding: position.funding,
+      salary: position.salary,
+      description: position.description,
+    });
     const update: Record<string, unknown> = {
       researchArea: area.area,
+      fundingStatus: funding.status,
+      fundingEvidence: funding.evidence,
       rollingAdmissions,
       researchAreaEvidence: area.evidence,
       deadlineStatus: deadline.status,

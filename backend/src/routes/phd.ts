@@ -10,7 +10,7 @@ import { notFound } from '../utils/errors.js';
 import { runPhdDiscovery } from '../services/phd/discovery.js';
 import { phdAdapters, phdSourceStatuses } from '../services/phd/adapters/index.js';
 import { ensureDeterministicPhdMatches, matchPhdPosition } from '../services/phd/matching.js';
-import { assessPhdDeadline } from '../services/phd/metadata.js';
+import { assessPhdDeadline, PHD_TARGET_RESEARCH_AREAS } from '../services/phd/metadata.js';
 import { startOfUtcDay } from '../services/jobs/age.js';
 import { getSettings } from '../services/settingsService.js';
 import {
@@ -43,11 +43,11 @@ const listQuery = paginationSchema.extend({
   maxScore: z.coerce.number().min(0).max(100).optional(),
   profileKind: profileKindSchema.optional(),
   topic: z.string().max(120).optional(),
-  researchArea: z.enum(['ai', 'cybersecurity', 'software_engineering', 'other']).optional(),
+  researchArea: z.enum(['ai', 'cybersecurity', 'software_engineering', 'data', 'other']).optional(),
   institution: z.string().max(160).optional(),
   deadlineStatus: z.enum(['open', 'expired', 'unknown', 'closed']).optional(),
-  // "true" keeps only positions that state funding or a salary; "false" keeps only those
-  // that do not, so missing funding information is never silently presented as funded.
+  // Results are fully funded only. "false" exposes advertisements without funding evidence so
+  // they can be reviewed, and is never the default.
   funded: z.enum(['true', 'false']).optional(),
   deadlineWithinDays: z.coerce.number().int().min(1).max(365).optional(),
   sort: z.enum(['newest', 'oldest', 'score', 'deadline', 'institution', 'title']).default('newest'),
@@ -118,13 +118,10 @@ phdRouter.get('/positions', async (req, res) => {
     // explicitly asks for them. Unclear language requirements stay, flagged for review.
     filter.languageDecision = { $ne: 'Excluded' };
   }
-  if (query.funded === 'true') {
-    filter.$and = [{ $or: [{ funding: { $ne: '' } }, { salary: { $ne: '' } }] }];
-  } else if (query.funded === 'false') {
-    filter.funding = { $in: ['', null] };
-    filter.salary = { $in: ['', null] };
-  }
+  // Only positions whose advertisement explicitly evidences funding are listed by default.
+  filter.fundingStatus = query.funded === 'false' ? { $ne: 'funded' } : 'funded';
   if (query.researchArea) filter.researchArea = query.researchArea;
+  else filter.researchArea = { $in: [...PHD_TARGET_RESEARCH_AREAS] };
   if (query.institution) {
     filter.institution = { $regex: query.institution, $options: 'i' };
   }

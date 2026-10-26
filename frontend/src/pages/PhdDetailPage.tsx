@@ -32,6 +32,7 @@ const RESEARCH_AREA_LABELS: Record<string, string> = {
   ai: 'Artificial Intelligence',
   cybersecurity: 'Cybersecurity',
   software_engineering: 'Software Engineering',
+  data: 'Data & Data Systems',
   other: 'Other research',
 };
 

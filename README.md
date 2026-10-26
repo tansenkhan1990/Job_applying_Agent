@@ -19,7 +19,7 @@ and no submission state machine. You decide where to apply and send the applicat
 | Filters for category, date, company, arrangement, language, score, saved state | ✅ tested |
 | Per-job AI chat with job-scoped history | ✅ tested |
 | Job cover letters: generate, edit, regenerate, version, copy, download PDF/DOCX | ✅ tested |
-| PhD discovery in AI, cybersecurity and software engineering | ✅ tested (simulated + configured feed) |
+| Fully funded PhD discovery in AI, cybersecurity, software engineering and data (Europe, Turkey, USA, Canada) | ✅ tested (simulated + configured feed) |
 | PhD deadline eligibility (open / expired / unknown / closed / rolling) | ✅ tested |
 | PhD research-area and profile match scoring (30/25/20/15/10 weights) | ✅ tested |
 | Per-PhD chat and academic cover letters | ✅ tested |
@@ -233,9 +233,15 @@ profile match, not an admission probability.
 - Expired and closed/filled positions are excluded from normal results.
 - Unknown deadlines are **not** assumed open: they appear only in the separate
   **Deadline needs verification** group.
+- Only positions in **Europe, Turkey, the USA and Canada** are stored. Anything elsewhere is
+  dropped at discovery, whatever the work arrangement.
+- Only positions whose advertisement **explicitly evidences funding** (funded position,
+  salary, stipend, scholarship, doctoral contract, TV-L/E13 pay) are stored. A position that
+  says funding must be secured by the applicant, or says nothing, is excluded; the
+  `funded=false` review view exposes those rows without listing them by default.
+- Only research areas **AI, cybersecurity, software engineering and data** are in scope.
+  Advertisements classified as any other research area are dropped.
 - Rolling admission is treated as open only when the advertisement says so.
-- Germany may be on-site, hybrid or remote. Outside Germany only explicitly remote roles
-  that permit work from Germany are included.
 
 ## Cover letters and chat
 

@@ -101,6 +101,99 @@ describe('PhD discovery', () => {
     expect(outside[0].simulated).toBe(true);
   });
 
+  it('stores only fully funded, in-scope positions in Europe, Turkey, the USA and Canada', async () => {
+    env.PHD_FEED_URL = 'https://example.org/phd-feed.json';
+    const fundedItem = (id: string, overrides: Record<string, unknown>) => ({
+      id,
+      url: `https://example.org/phd/${id}`,
+      institution: 'Example University',
+      applicationDeadline: '2027-06-30',
+      deadlineTimezone: 'UTC',
+      description: 'English is the working language.',
+      ...overrides,
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            positions: [
+              fundedItem('ca', {
+                title: 'PhD in machine learning for data platforms',
+                country: 'Canada',
+                location: 'Toronto, Canada',
+                description: 'The position is fully funded for four years. English is the working language.',
+              }),
+              fundedItem('tr', {
+                title: 'PhD in applied cryptography and network security',
+                country: 'Turkey',
+                location: 'Ankara, Turkey',
+                workArrangement: 'onsite',
+                description: 'Fully funded doctoral contract. English is the working language.',
+              }),
+              fundedItem('in', {
+                title: 'PhD in machine learning',
+                country: 'India',
+                location: 'Bangalore, India',
+                description: 'Fully funded position. English is the working language.',
+              }),
+              fundedItem('de-unfunded', {
+                title: 'PhD in machine learning',
+                country: 'Germany',
+                location: 'Berlin, Germany',
+              }),
+              fundedItem('de-self', {
+                title: 'PhD in data engineering',
+                country: 'Germany',
+                location: 'Munich, Germany',
+                description: 'This is a self-funded position; applicants must secure their own funding.',
+              }),
+              fundedItem('de-other-area', {
+                title: 'PhD in marine biology',
+                country: 'Germany',
+                location: 'Bremen, Germany',
+                description: 'Fully funded position. English is the working language.',
+              }),
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
+    await request(app)
+      .patch('/api/settings')
+      .send({ sources: { phd_mock: { enabled: false }, phd_feed: { enabled: true } } })
+      .expect(200);
+
+    try {
+      const run = await request(app).post('/api/phd/search').send({}).expect(201);
+      expect(run.body.discovered).toBe(6);
+      expect(run.body.created).toBe(2);
+      expect(run.body.filteredOut).toBe(4);
+
+      const list = await request(app).get('/api/phd/positions?limit=50').expect(200);
+      expect(list.body.total).toBe(2);
+      const countries = list.body.items
+        .map((item: { country: string }) => item.country)
+        .sort();
+      expect(countries).toEqual(['Canada', 'Turkey']);
+      for (const item of list.body.items as Array<{ fundingStatus: string }>) {
+        expect(item.fundingStatus).toBe('funded');
+      }
+
+      // The excluded rows stay inspectable through the review view, but never by default.
+      const review = await request(app).get('/api/phd/positions?limit=50&funded=false').expect(200);
+      expect(review.body.total).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+      env.PHD_FEED_URL = '';
+      await request(app)
+        .patch('/api/settings')
+        .send({ sources: { phd_mock: { enabled: true }, phd_feed: { enabled: false } } })
+        .expect(200);
+    }
+  });
+
   it('keeps previously discovered positions when a source fails', async () => {
     await request(app).post('/api/phd/search').send({}).expect(201);
     const before = await PhdPositionModel.countDocuments();

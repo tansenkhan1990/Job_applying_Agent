@@ -129,11 +129,11 @@ A chat session is bound to exactly one job. Passing another job's session id is 
 | --- | --- |
 | `q` | Title, institution, topic or location |
 | `topic` | Research topic or title contains |
-| `researchArea` | `ai`, `cybersecurity`, `software_engineering`, `other` |
+| `researchArea` | `ai`, `cybersecurity`, `software_engineering`, `data`; defaults to those four. `other` exists only for inspecting excluded rows. |
 | `institution`, `country` | Filters |
 | `deadlineStatus` | `open` (default), `unknown`, `expired`, `closed` |
 | `deadlineWithinDays` | Closing window |
-| `funded` | `true` = funding/salary stated, `false` = not stated |
+| `funded` | `true` (default) = explicit funding evidence only; `false` = review view for advertisements without funding evidence |
 | `languageDecision` | `Eligible`, `Needs Review`, `Excluded`; German-mandatory excluded by default |
 | `minScore`, `maxScore`, `profileKind` | Match filters |
 | `saved`, `reviewed`, `hasCoverLetter` | Personal state |
@@ -142,6 +142,13 @@ A chat session is bound to exactly one job. Passing another job's session id is 
 Only positions whose deadline is verified open (or explicitly rolling) appear by default.
 Unknown deadlines are reachable only through `deadlineStatus=unknown`. PhD positions are never
 filtered by posting age.
+
+Discovery enforces three hard rules before a position is stored: the country must be in
+Europe, Turkey, the USA or Canada; the research area must be AI, cybersecurity, software
+engineering or data; and the advertisement must explicitly evidence funding (funded position,
+salary, stipend, scholarship, doctoral contract, TV-L/E13 pay). Positions that state funding
+must be secured by the applicant are labelled `not_funded`; silence is `unknown`. Neither is
+listed by default.
 
 ## Matching
 

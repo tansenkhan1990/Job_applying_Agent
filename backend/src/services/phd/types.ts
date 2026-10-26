@@ -18,7 +18,7 @@ export interface PhdListing {
   workArrangement: WorkArrangement | 'unknown';
   remoteEligibleFromGermany: boolean | null;
   researchTopic: string;
-  researchArea: 'ai' | 'cybersecurity' | 'software_engineering' | 'other';
+  researchArea: 'ai' | 'cybersecurity' | 'software_engineering' | 'data' | 'other';
   researchAreaEvidence: string;
   description: string;
   requiredQualifications: string[];
@@ -27,6 +27,9 @@ export interface PhdListing {
   requiredMethods: string[];
   requiredLanguages: string[];
   funding: string;
+  /** Whether the advertisement itself evidences a funded position. */
+  fundingStatus: 'funded' | 'not_funded' | 'unknown';
+  fundingEvidence: string;
   salary: string;
   employmentRequirements: string[];
   languageRequirement: string;
@@ -77,6 +80,8 @@ export interface PhdDiscoveryResult {
     updated: number;
     duplicates: number;
     filtered: number;
+    /** Counts per exclusion rule, so a run can explain what it dropped. */
+    rejectionReasons?: Record<string, number>;
     durationMs: number;
     error: string;
   }>;

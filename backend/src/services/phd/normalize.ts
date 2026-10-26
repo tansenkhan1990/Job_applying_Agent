@@ -6,6 +6,7 @@ import { classifyLanguage } from '../jobs/language.js';
 import { skillPresent } from '../matching/scoring.js';
 import {
   assessPhdDeadline,
+  classifyPhdFunding,
   classifyPhdResearchArea,
   detectRollingAdmissions,
   isDateOnlyDeadline,
@@ -135,13 +136,299 @@ function extractSkills(text: string): string[] {
   return PHD_SKILLS.filter((skill) => skillPresent(text, skill));
 }
 
-function inferCountry(location: string, explicit: string | undefined): string {
-  if (explicit?.trim()) return explicit.trim();
-  if (/\bgermany\b|\bdeutschland\b/i.test(location)) return 'Germany';
-  const germanCities =
-    /\b(berlin|munich|münchen|hamburg|frankfurt|cologne|köln|stuttgart|dresden|leipzig|heidelberg|aachen|bonn|göttingen|goettingen|tübingen|tuebingen|karlsruhe|freiburg|jena|potsdam|bremen|hannover|nuremberg|nürnberg)\b/i;
-  if (germanCities.test(location)) return 'Germany';
+/** European countries whose doctoral positions are in scope. */
+const EUROPE_COUNTRIES = [
+  'Albania',
+  'Austria',
+  'Belgium',
+  'Bosnia and Herzegovina',
+  'Bulgaria',
+  'Croatia',
+  'Cyprus',
+  'Czech Republic',
+  'Denmark',
+  'Estonia',
+  'Finland',
+  'France',
+  'Germany',
+  'Greece',
+  'Hungary',
+  'Iceland',
+  'Ireland',
+  'Italy',
+  'Kosovo',
+  'Latvia',
+  'Liechtenstein',
+  'Lithuania',
+  'Luxembourg',
+  'Malta',
+  'Moldova',
+  'Monaco',
+  'Montenegro',
+  'Netherlands',
+  'North Macedonia',
+  'Norway',
+  'Poland',
+  'Portugal',
+  'Romania',
+  'Serbia',
+  'Slovakia',
+  'Slovenia',
+  'Spain',
+  'Sweden',
+  'Switzerland',
+  'Ukraine',
+  'United Kingdom',
+] as const;
+
+/** The countries a discovery run may store. Everything else is filtered out. */
+export const PHD_TARGET_COUNTRIES = new Set<string>([
+  ...EUROPE_COUNTRIES,
+  // A Europe-wide remote advertisement is still a European position.
+  'Europe',
+  'Turkey',
+  'United States',
+  'Canada',
+]);
+
+export const PHD_TARGET_REGIONS_LABEL = 'Europe, Turkey, the USA and Canada';
+
+const COUNTRY_ALIASES: Array<[string, string]> = [
+  ...EUROPE_COUNTRIES.map((country): [string, string] => [country.toLowerCase(), country]),
+  ['deutschland', 'Germany'],
+  ['österreich', 'Austria'],
+  ['oesterreich', 'Austria'],
+  ['belgië', 'Belgium'],
+  ['belgique', 'Belgium'],
+  ['czechia', 'Czech Republic'],
+  ['česko', 'Czech Republic'],
+  ['españa', 'Spain'],
+  ['espana', 'Spain'],
+  ['suomi', 'Finland'],
+  ['sverige', 'Sweden'],
+  ['norge', 'Norway'],
+  ['danmark', 'Denmark'],
+  ['schweiz', 'Switzerland'],
+  ['suisse', 'Switzerland'],
+  ['italia', 'Italy'],
+  ['polska', 'Poland'],
+  ['nederland', 'Netherlands'],
+  ['holland', 'Netherlands'],
+  ['the netherlands', 'Netherlands'],
+  ['europe', 'Europe'],
+  ['european union', 'Europe'],
+  ['eu', 'Europe'],
+  ['uk', 'United Kingdom'],
+  ['u.k.', 'United Kingdom'],
+  ['great britain', 'United Kingdom'],
+  ['britain', 'United Kingdom'],
+  ['england', 'United Kingdom'],
+  ['scotland', 'United Kingdom'],
+  ['wales', 'United Kingdom'],
+  ['northern ireland', 'United Kingdom'],
+  ['usa', 'United States'],
+  ['u.s.a.', 'United States'],
+  ['u.s.', 'United States'],
+  ['us', 'United States'],
+  ['united states of america', 'United States'],
+  ['turkiye', 'Turkey'],
+  ['türkiye', 'Turkey'],
+  ['republic of turkey', 'Turkey'],
+];
+
+const COUNTRY_ALIAS_LOOKUP = new Map(
+  COUNTRY_ALIASES.map(([alias, country]) => [alias.toLowerCase(), country]),
+);
+
+// Only used when an advertisement omits the country but names a well-known host city.
+const CITY_COUNTRY: Array<[string, string]> = [
+  ['berlin', 'Germany'],
+  ['munich', 'Germany'],
+  ['münchen', 'Germany'],
+  ['hamburg', 'Germany'],
+  ['frankfurt', 'Germany'],
+  ['cologne', 'Germany'],
+  ['köln', 'Germany'],
+  ['stuttgart', 'Germany'],
+  ['dresden', 'Germany'],
+  ['leipzig', 'Germany'],
+  ['heidelberg', 'Germany'],
+  ['aachen', 'Germany'],
+  ['bonn', 'Germany'],
+  ['göttingen', 'Germany'],
+  ['tübingen', 'Germany'],
+  ['karlsruhe', 'Germany'],
+  ['freiburg', 'Germany'],
+  ['jena', 'Germany'],
+  ['potsdam', 'Germany'],
+  ['bremen', 'Germany'],
+  ['hannover', 'Germany'],
+  ['nuremberg', 'Germany'],
+  ['nürnberg', 'Germany'],
+  ['amsterdam', 'Netherlands'],
+  ['utrecht', 'Netherlands'],
+  ['rotterdam', 'Netherlands'],
+  ['leiden', 'Netherlands'],
+  ['delft', 'Netherlands'],
+  ['eindhoven', 'Netherlands'],
+  ['groningen', 'Netherlands'],
+  ['nijmegen', 'Netherlands'],
+  ['maastricht', 'Netherlands'],
+  ['london', 'United Kingdom'],
+  ['oxford', 'United Kingdom'],
+  ['edinburgh', 'United Kingdom'],
+  ['manchester', 'United Kingdom'],
+  ['bristol', 'United Kingdom'],
+  ['zurich', 'Switzerland'],
+  ['zürich', 'Switzerland'],
+  ['geneva', 'Switzerland'],
+  ['lausanne', 'Switzerland'],
+  ['basel', 'Switzerland'],
+  ['bern', 'Switzerland'],
+  ['vienna', 'Austria'],
+  ['wien', 'Austria'],
+  ['graz', 'Austria'],
+  ['linz', 'Austria'],
+  ['innsbruck', 'Austria'],
+  ['paris', 'France'],
+  ['lyon', 'France'],
+  ['grenoble', 'France'],
+  ['toulouse', 'France'],
+  ['marseille', 'France'],
+  ['bordeaux', 'France'],
+  ['lille', 'France'],
+  ['strasbourg', 'France'],
+  ['copenhagen', 'Denmark'],
+  ['københavn', 'Denmark'],
+  ['aarhus', 'Denmark'],
+  ['stockholm', 'Sweden'],
+  ['gothenburg', 'Sweden'],
+  ['göteborg', 'Sweden'],
+  ['uppsala', 'Sweden'],
+  ['oslo', 'Norway'],
+  ['trondheim', 'Norway'],
+  ['helsinki', 'Finland'],
+  ['espoo', 'Finland'],
+  ['tampere', 'Finland'],
+  ['reykjavik', 'Iceland'],
+  ['brussels', 'Belgium'],
+  ['bruxelles', 'Belgium'],
+  ['leuven', 'Belgium'],
+  ['ghent', 'Belgium'],
+  ['antwerp', 'Belgium'],
+  ['dublin', 'Ireland'],
+  ['cork', 'Ireland'],
+  ['galway', 'Ireland'],
+  ['milan', 'Italy'],
+  ['milano', 'Italy'],
+  ['rome', 'Italy'],
+  ['roma', 'Italy'],
+  ['turin', 'Italy'],
+  ['torino', 'Italy'],
+  ['bologna', 'Italy'],
+  ['padua', 'Italy'],
+  ['pisa', 'Italy'],
+  ['madrid', 'Spain'],
+  ['barcelona', 'Spain'],
+  ['valencia', 'Spain'],
+  ['seville', 'Spain'],
+  ['bilbao', 'Spain'],
+  ['lisbon', 'Portugal'],
+  ['lisboa', 'Portugal'],
+  ['porto', 'Portugal'],
+  ['coimbra', 'Portugal'],
+  ['warsaw', 'Poland'],
+  ['warszawa', 'Poland'],
+  ['krakow', 'Poland'],
+  ['kraków', 'Poland'],
+  ['wroclaw', 'Poland'],
+  ['wrocław', 'Poland'],
+  ['poznan', 'Poland'],
+  ['gdansk', 'Poland'],
+  ['prague', 'Czech Republic'],
+  ['praha', 'Czech Republic'],
+  ['brno', 'Czech Republic'],
+  ['budapest', 'Hungary'],
+  ['bucharest', 'Romania'],
+  ['sofia', 'Bulgaria'],
+  ['athens', 'Greece'],
+  ['thessaloniki', 'Greece'],
+  ['zagreb', 'Croatia'],
+  ['ljubljana', 'Slovenia'],
+  ['belgrade', 'Serbia'],
+  ['bratislava', 'Slovakia'],
+  ['tallinn', 'Estonia'],
+  ['riga', 'Latvia'],
+  ['vilnius', 'Lithuania'],
+  ['kyiv', 'Ukraine'],
+  ['ankara', 'Turkey'],
+  ['istanbul', 'Turkey'],
+  ['izmir', 'Turkey'],
+  ['boston', 'United States'],
+  ['new york', 'United States'],
+  ['san francisco', 'United States'],
+  ['berkeley', 'United States'],
+  ['palo alto', 'United States'],
+  ['seattle', 'United States'],
+  ['austin', 'United States'],
+  ['chicago', 'United States'],
+  ['los angeles', 'United States'],
+  ['san diego', 'United States'],
+  ['atlanta', 'United States'],
+  ['pittsburgh', 'United States'],
+  ['ann arbor', 'United States'],
+  ['madison', 'United States'],
+  ['urbana', 'United States'],
+  ['champaign', 'United States'],
+  ['princeton', 'United States'],
+  ['new haven', 'United States'],
+  ['philadelphia', 'United States'],
+  ['baltimore', 'United States'],
+  ['durham', 'United States'],
+  ['houston', 'United States'],
+  ['denver', 'United States'],
+  ['boulder', 'United States'],
+  ['minneapolis', 'United States'],
+  ['toronto', 'Canada'],
+  ['montreal', 'Canada'],
+  ['montréal', 'Canada'],
+  ['vancouver', 'Canada'],
+  ['ottawa', 'Canada'],
+  ['waterloo', 'Canada'],
+  ['edmonton', 'Canada'],
+  ['calgary', 'Canada'],
+  ['halifax', 'Canada'],
+  ['winnipeg', 'Canada'],
+];
+
+/** Canonical country name for a feed value, or the trimmed original when unrecognised. */
+export function normalizeCountryName(value: string | undefined): string {
+  const trimmed = normalizeWhitespace(value ?? '');
+  if (!trimmed) return '';
+  return COUNTRY_ALIAS_LOOKUP.get(trimmed.toLowerCase()) ?? trimmed;
+}
+
+function countryFromText(location: string): string {
+  if (!location) return '';
+  const aliases = [...COUNTRY_ALIASES].sort(([a], [b]) => b.length - a.length);
+  for (const [alias, country] of aliases) {
+    if (alias.length < 3) continue;
+    if (new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(location)) {
+      return country;
+    }
+  }
+  for (const [city, country] of CITY_COUNTRY) {
+    if (new RegExp(`\\b${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(location)) {
+      return country;
+    }
+  }
   return '';
+}
+
+function inferCountry(location: string, explicit: string | undefined): string {
+  const stated = normalizeCountryName(explicit);
+  if (stated) return stated;
+  return countryFromText(location);
 }
 
 export function phdFingerprint(institution: string, title: string, country: string): string {
@@ -206,6 +493,11 @@ export function normalizePhdListing(raw: RawPhdListing): PhdListing | null {
   const workArrangement = raw.workArrangement ?? 'unknown';
   const remoteEligible =
     typeof raw.remoteEligibleFromGermany === 'boolean' ? raw.remoteEligibleFromGermany : null;
+  const funding = classifyPhdFunding({
+    funding: raw.funding,
+    salary: raw.salary,
+    description,
+  });
 
   return {
     source: raw.source,
@@ -238,6 +530,8 @@ export function normalizePhdListing(raw: RawPhdListing): PhdListing | null {
       ...(classification.germanRequired ? ['German'] : []),
     ]),
     funding: normalizeWhitespace(raw.funding ?? ''),
+    fundingStatus: funding.status,
+    fundingEvidence: funding.evidence,
     salary: normalizeWhitespace(raw.salary ?? ''),
     employmentRequirements: unique(raw.employmentRequirements ?? []).slice(0, 10),
     languageRequirement: classification.languageRequirement,
@@ -267,24 +561,22 @@ export function normalizePhdListing(raw: RawPhdListing): PhdListing | null {
 }
 
 /**
- * Germany: all arrangements. Outside Germany: only explicit remote positions that state
- * remote eligibility from Germany. A remote label alone is not sufficient.
+ * Only doctoral positions in Europe, Turkey, the USA and Canada are in scope, whatever the work
+ * arrangement. A position whose country cannot be established is not guessed into the list.
  */
 export function passesPhdLocationRule(listing: PhdListing): { included: boolean; reason: string } {
-  if (listing.country === 'Germany') {
-    return { included: true, reason: 'Germany-based position.' };
-  }
-  if (listing.workArrangement !== 'remote') {
+  const country = normalizeCountryName(listing.country) || countryFromText(listing.location);
+  if (!country) {
     return {
       included: false,
-      reason: 'Outside Germany, only remote positions are considered.',
+      reason: `The advertisement does not state a country inside ${PHD_TARGET_REGIONS_LABEL}.`,
     };
   }
-  if (listing.remoteEligibleFromGermany !== true) {
-    return {
-      included: false,
-      reason: 'Remote eligibility from Germany is not explicitly confirmed by the advertisement.',
-    };
+  if (PHD_TARGET_COUNTRIES.has(country)) {
+    return { included: true, reason: `${country} is inside ${PHD_TARGET_REGIONS_LABEL}.` };
   }
-  return { included: true, reason: 'Remote outside Germany with explicit eligibility from Germany.' };
+  return {
+    included: false,
+    reason: `${country} is outside ${PHD_TARGET_REGIONS_LABEL}.`,
+  };
 }

@@ -7,6 +7,7 @@ import { mockAdapter } from '../src/services/jobs/adapters/mock.js';
 import { normalizePhdListing, type RawPhdListing } from '../src/services/phd/normalize.js';
 import {
   assessPhdDeadline,
+  classifyPhdFunding,
   classifyPhdResearchArea,
 } from '../src/services/phd/metadata.js';
 import { AppSettingModel } from '../src/models/AppSetting.js';
@@ -128,6 +129,7 @@ const phdBase: RawPhdListing = {
   description:
     'English is the working language. Requirements: master degree in computer science and Python.',
   workArrangement: 'onsite',
+  funding: 'TV-L E13, 65%',
 };
 
 async function seedPhd(raw: Partial<RawPhdListing>) {
@@ -151,7 +153,24 @@ describe('PhD research-area classification', () => {
       classifyPhdResearchArea('Research on software engineering, developer tools, and testing')
         .area,
     ).toBe('software_engineering');
+    expect(
+      classifyPhdResearchArea('Doctoral position in data engineering and database systems').area,
+    ).toBe('data');
     expect(classifyPhdResearchArea('Doctoral researcher in marine biology').area).toBe('other');
+  });
+
+  it('requires explicit funding evidence and rejects self-funded advertisements', () => {
+    expect(classifyPhdFunding({ funding: 'TV-L E13, 65%, three years' }).status).toBe('funded');
+    expect(
+      classifyPhdFunding({ description: 'The position is fully funded for three years.' }).status,
+    ).toBe('funded');
+    expect(
+      classifyPhdFunding({ description: 'Applicants must secure their own funding.' }).status,
+    ).toBe('not_funded');
+    expect(
+      classifyPhdFunding({ funding: 'Tuition fees apply; this is a self-funded programme.' }).status,
+    ).toBe('not_funded');
+    expect(classifyPhdFunding({ description: 'Master degree required.' }).status).toBe('unknown');
   });
 });
 
@@ -336,6 +355,9 @@ describe('PhD funding and language filters', () => {
       sourceJobId: 'phd-unfunded',
       url: 'https://example.org/phd/unfunded',
       title: 'PhD in AI systems (funding not stated)',
+      description:
+        'English is the working language. Requirements: master degree in computer science and Python.',
+      funding: '',
       applicationDeadline: deadline,
     });
     const germanOnly = await seedPhd({
@@ -344,6 +366,7 @@ describe('PhD funding and language filters', () => {
       title: 'Doktorand im Bereich Software Engineering',
       description:
         'German language skills are mandatory. Deutschkenntnisse sind zwingend erforderlich. Master degree in computer science required.',
+      funding: 'TV-L E13, 65%',
       applicationDeadline: deadline,
     });
 
