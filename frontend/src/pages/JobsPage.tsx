@@ -81,7 +81,7 @@ export function JobsPage() {
     mutationFn: () => api<DiscoveryResult>('/jobs/search', { method: 'POST', body: {} }),
     onSuccess: (result) => {
       toast.success(
-        `Discovery: ${result.discovered} found, ${result.created} new, ${result.filteredOut} filtered out.`,
+        `Discovery: ${result.discovered} found, ${result.created} new, ${result.updated} refreshed, ${result.filteredOut} filtered out.`,
       );
       for (const source of result.sources) {
         if (source.error) toast.error(`${source.source}: ${source.error}`);

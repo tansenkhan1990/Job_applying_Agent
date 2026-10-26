@@ -224,7 +224,19 @@ export async function runDiscovery(options: {
         filtered.push(listing);
       }
       const remainingBudget = Math.max(0, totalBudget - totalCreated - totalUpdated);
-      filtered = filtered.slice(0, Math.min(perSourceBudget, remainingBudget));
+      const limit = Math.min(perSourceBudget, remainingBudget);
+      const budgetSkipped = Math.max(0, filtered.length - limit);
+      if (budgetSkipped > 0) {
+        // These listings passed the eligibility rules but were not processed because the run
+        // budget was reached. Counting them keeps `found = created + updated + filtered` true,
+        // so the run summary cannot look like listings vanished without a reason.
+        logger.info(
+          { source: adapter.id, budgetSkipped, limit },
+          'Eligible listings skipped because the run budget was reached',
+        );
+        rejected += budgetSkipped;
+      }
+      filtered = filtered.slice(0, limit);
     }
 
     let upsert = { created: 0, updated: 0, duplicates: 0, jobIds: [] as unknown[] };

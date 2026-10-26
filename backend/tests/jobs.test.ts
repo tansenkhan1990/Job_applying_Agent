@@ -296,6 +296,33 @@ describe('discovery runs', () => {
     expect(run?.duplicates).toBeGreaterThanOrEqual(0);
   });
 
+  it('counts eligible listings that the run budget skipped instead of dropping them silently', async () => {
+    await seedApprovedProfiles();
+    // The mock adapter normally honours the budget itself; bypass it so the run sees three
+    // eligible listings and can only persist two of them.
+    const eligibleIds = ['mock-ai-engineer-rag', 'mock-fullstack-senior', 'mock-platform-engineer'];
+    const original = mockAdapter.searchJobs;
+    const seeded = await original(baseCriteria);
+    const eligible = seeded.filter((listing) => eligibleIds.includes(listing.sourceJobId));
+    expect(eligible).toHaveLength(3);
+    mockAdapter.searchJobs = async () => eligible;
+
+    try {
+      const result = await runDiscovery({
+        trigger: 'manual',
+        overrides: { sources: ['mock'], maxJobs: 2 },
+      });
+
+      expect(result.created).toBe(2);
+      // The third eligible listing did not fit the budget. Reporting 0 would make the run
+      // totals appear to lose a listing that passed every rule.
+      expect(result.filteredOut).toBe(1);
+      expect(result.created + result.updated + result.filteredOut).toBe(result.discovered);
+    } finally {
+      mockAdapter.searchJobs = original;
+    }
+  });
+
   it('stores an age classification and reason for every discovered job with a date', async () => {
     await seedApprovedProfiles();
     await runDiscovery({ trigger: 'manual', overrides: { sources: ['mock'] } });
