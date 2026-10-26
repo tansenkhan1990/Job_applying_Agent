@@ -1,7 +1,7 @@
 import type { Seniority } from '../../config/defaults.js';
 import { normalizeForMatch } from '../../utils/text.js';
 import { assessJobAge } from './age.js';
-import { isEuRemoteLocation } from './normalize.js';
+import { isEuRemoteLocation, isGermanLocation } from './normalize.js';
 import type { JobListing, JobSearchCriteria } from './types.js';
 
 export interface FilterOutcome {
@@ -102,17 +102,26 @@ export function hasNonEuRemoteRestriction(job: JobListing): boolean {
 }
 
 export function isLocationAllowed(job: JobListing, criteria: JobSearchCriteria): boolean {
-  const locationText = normalizeForMatch(`${job.location} ${job.title}`);
   if (job.workArrangement === 'remote') {
-    if (!isEuRemoteLocation(job.location)) return false;
     if (hasNonEuRemoteRestriction(job)) return false;
-    return job.country === 'Germany' || isEuRemoteLocation(job.location);
+    if (job.country === 'Germany') return true;
+    if (!isEuRemoteLocation(job.location)) return false;
+    const scope = criteria.remoteScope.map(normalizeForMatch);
+    const scopeAllowsEu =
+      scope.length === 0 ||
+      scope.some(
+        (entry) =>
+          entry.includes('europe') || entry === 'eu' || entry.includes('european union'),
+      );
+    return scopeAllowsEu;
   }
-  const countryAllowed =
-    job.country.length === 0 ||
-    criteria.countries.some((country) => normalizeForMatch(country) === normalizeForMatch(job.country)) ||
-    criteria.countries.some((country) => locationText.includes(normalizeForMatch(country)));
-  return countryAllowed;
+
+  // Outside Germany only remote roles are in scope. A hybrid/on-site/unknown-arrangement
+  // role must be verifiably German: a foreign country is rejected, and an unrecognised
+  // location is only accepted when the location text itself names Germany.
+  if (job.country === 'Germany') return true;
+  if (job.country !== '') return false;
+  return isGermanLocation(job.location);
 }
 
 export function isSeniorityAllowed(
@@ -130,8 +139,9 @@ export function applyDeterministicFilters(job: JobListing, criteria: JobSearchCr
 
   const age = assessJobAge({
     postedAt: job.postedAt,
+    postedLocalDate: job.postedLocalDate,
     expiresAt: job.expiresAt,
-    months: criteria.minAgeMonths,
+    months: criteria.maxAgeMonths,
   });
   if (job.postedAt) {
     const ageDays = (Date.now() - job.postedAt.getTime()) / 86_400_000;
@@ -141,11 +151,13 @@ export function applyDeterministicFilters(job: JobListing, criteria: JobSearchCr
     // age eligibility is never silently assumed.
     flags.push('posted_date_unknown');
   }
-  // Too-recent jobs are still stored so the dashboard can report them. The application
-  // queue and assistant enforce the age threshold.
-  if (age.ageEligibility === 'Too Recent') flags.push('too_recent');
   if (age.ageEligibility === 'Unknown') flags.push('age_unknown');
-  if (age.ageEligibility === 'Expired') reasons.push('expired');
+  if (age.ageEligibility === 'Expired') {
+    // Only postings inside the calendar-month window are stored. A job is excluded either
+    // because its own deadline passed or because it is three or more months old.
+    const expiredByDate = Boolean(job.expiresAt && job.expiresAt.getTime() < Date.now());
+    reasons.push(expiredByDate ? 'expired' : 'older_than_max_age');
+  }
 
   if (criteria.workArrangements.length > 0 && job.workArrangement !== 'unknown') {
     if (!criteria.workArrangements.includes(job.workArrangement)) reasons.push('work_arrangement_mismatch');

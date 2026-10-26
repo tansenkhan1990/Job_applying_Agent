@@ -27,7 +27,7 @@ const criteria: JobSearchCriteria = {
   excludeUnpaid: true,
   excludeGermanRequired: true,
   freshnessDays: 30,
-  minAgeMonths: 3,
+  maxAgeMonths: 3,
   maxJobs: 20,
 };
 
@@ -55,7 +55,7 @@ describe('deterministic scoring', () => {
     expect(assessment.matchedSkills).toEqual(
       expect.arrayContaining(['TypeScript', 'React', 'Node.js', 'PostgreSQL']),
     );
-    expect(assessment.explanation).toMatch(/Rule-based assessment/);
+    expect(assessment.explanation).toMatch(/Transparent weighted estimate/);
     expect(assessment.requirements.some((requirement) => requirement.label === 'Location')).toBe(true);
   });
 

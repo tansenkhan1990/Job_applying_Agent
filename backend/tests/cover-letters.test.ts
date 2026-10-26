@@ -23,7 +23,7 @@ const criteria: JobSearchCriteria = {
   excludeUnpaid: true,
   excludeGermanRequired: true,
   freshnessDays: 30,
-  minAgeMonths: 3,
+  maxAgeMonths: 3,
   maxJobs: 20,
 };
 

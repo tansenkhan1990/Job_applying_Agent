@@ -22,6 +22,8 @@ const jobSchema = new Schema(
     },
     employmentType: { type: String, default: '' },
     salary: { type: String, default: '' },
+    salaryMin: { type: Number, default: null, index: true },
+    salaryMax: { type: Number, default: null, index: true },
     tags: { type: [String], default: [] },
     description: { type: String, default: '' },
     descriptionHtml: { type: String, default: '', select: false },
@@ -46,6 +48,18 @@ const jobSchema = new Schema(
     discoveredAt: { type: Date, default: Date.now, index: true },
     lastVerifiedAt: { type: Date, default: null },
     expiresAt: { type: Date, default: null },
+
+    // Personal dashboard state (single local user).
+    saved: { type: Boolean, default: false, index: true },
+    // Remembered per-job letter document choice. Auto-selection fills these when unset.
+    letterPreferences: {
+      cvProfile: { type: Schema.Types.ObjectId, ref: 'CandidateProfile', default: null },
+      referenceProfile: { type: Schema.Types.ObjectId, ref: 'CandidateProfile', default: null },
+      updatedAt: { type: Date, default: null },
+    },
+    reviewedAt: { type: Date, default: null, index: true },
+    // True/false only when the source explicitly states remote eligibility from Germany.
+    remoteEligibleFromGermany: { type: Boolean, default: null },
 
     status: {
       type: String,

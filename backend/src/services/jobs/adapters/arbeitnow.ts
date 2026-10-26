@@ -76,12 +76,9 @@ export const arbeitnowAdapter: JobSourceAdapter = {
   isConfigured: () => true,
 
   async searchJobs(criteria: JobSearchCriteria): Promise<JobListing[]> {
-    // The public feed is newest-first. When the three-month application rule is active we
-    // page deeper (bounded to 8 requests) so older eligible postings can actually appear.
-    const maxPages =
-      criteria.minAgeMonths > 0
-        ? Math.min(8, Math.max(3, Math.ceil(criteria.maxJobs / 20)))
-        : Math.min(2, Math.max(1, Math.ceil(criteria.maxJobs / 100)));
+    // The public feed is newest-first and only postings inside the calendar-month window
+    // are kept, so one or two bounded pages are enough.
+    const maxPages = Math.min(2, Math.max(1, Math.ceil(criteria.maxJobs / 50)));
     const listings: JobListing[] = [];
     const seen = new Set<string>();
 

@@ -26,6 +26,8 @@ export interface JobListing {
   workArrangement: WorkArrangement | 'unknown';
   employmentType: string;
   salary: string;
+  salaryMin?: number | null;
+  salaryMax?: number | null;
   tags: string[];
   description: string;
   descriptionHtml?: string;
@@ -47,6 +49,8 @@ export interface JobListing {
   languageDecision: LanguageDecision;
   languageReason: string;
   seniority: Seniority | 'unknown';
+  /** True only when the posting explicitly permits remote work from Germany; null if unstated. */
+  remoteEligibleFromGermany?: boolean | null;
 }
 
 export interface JobSearchCriteria {
@@ -64,7 +68,7 @@ export interface JobSearchCriteria {
   /** Drop vacancies whose posting mandates German. Optional/preferred German and unclassified postings stay. */
   excludeGermanRequired: boolean;
   freshnessDays: number;
-  minAgeMonths: number;
+  maxAgeMonths: number;
   maxJobs: number;
 }
 
@@ -111,7 +115,7 @@ export function criteriaFromSettings(
     excludeUnpaid: search.excludeUnpaid,
     excludeGermanRequired: search.excludeGermanRequired,
     freshnessDays: search.freshnessDays,
-    minAgeMonths: search.minAgeMonths,
+    maxAgeMonths: search.maxAgeMonths,
     maxJobs: search.maxJobsPerRun,
     ...overrides,
   };

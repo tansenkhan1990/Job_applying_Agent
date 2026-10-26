@@ -38,12 +38,13 @@ export interface AppSettings {
     minRelevanceScore: number;
     maxJobsPerRun: number;
     freshnessDays: number;
-    minAgeMonths: number;
+    maxAgeMonths: number;
     excludeInternships: boolean;
     excludeUnpaid: boolean;
     excludeGermanRequired: boolean;
     excludeKeywords: string[];
     includeKeywords: string[];
+    targetTitles: string[];
     sources: Record<string, boolean>;
   };
   schedule: { enabled: boolean; intervalMinutes: number; runOnStartup: boolean };
@@ -199,7 +200,22 @@ export interface JobMatch {
   score: number;
   deterministicScore: number;
   aiScore: number | null;
-  scoreBreakdown: { title: number; skills: number; seniority: number; location: number };
+  scoreBreakdown: Record<string, number>;
+  scoreCategories?: Array<{
+    key: string;
+    label: string;
+    weight: number;
+    applicable: boolean;
+    score: number;
+    detail: string;
+  }>;
+  matchedRequired?: string[];
+  missingRequired?: string[];
+  matchedPreferred?: string[];
+  missingPreferred?: string[];
+  requiredSkills?: string[];
+  preferredSkills?: string[];
+  recommendedProfileKind?: string;
   matchedSkills: string[];
   missingSkills: string[];
   strengths: string[];
@@ -276,6 +292,9 @@ export interface Job {
   languageDecision: 'Eligible' | 'Excluded' | 'Needs Review';
   languageReason: string;
   seniority: 'junior' | 'mid' | 'senior' | 'lead' | 'unknown';
+  saved: boolean;
+  reviewedAt: string | null;
+  remoteEligibleFromGermany: boolean | null;
   bestMatch?: JobMatch | null;
   application?: {
     id: string;
@@ -290,6 +309,129 @@ export interface JobDetailResponse {
   matches: JobMatch[];
 }
 
+export type PhdLanguageDecision = 'Eligible' | 'Excluded' | 'Needs Review';
+
+export interface PhdPosition {
+  id: string;
+  source: string;
+  sourceJobId: string;
+  sourceLabel: string;
+  simulated: boolean;
+  url: string;
+  canonicalUrl: string;
+  applicationUrl: string;
+  institution: string;
+  title: string;
+  researchGroup: string;
+  supervisor: string;
+  department: string;
+  location: string;
+  country: string;
+  workArrangement: WorkArrangement | 'unknown';
+  remoteEligibleFromGermany: boolean | null;
+  researchTopic: string;
+  researchArea: 'ai' | 'cybersecurity' | 'software_engineering' | 'other';
+  researchAreaEvidence: string;
+  description?: string;
+  descriptionPreview?: string;
+  requiredQualifications: string[];
+  requiredSkills: string[];
+  preferredSkills: string[];
+  requiredMethods: string[];
+  requiredLanguages: string[];
+  funding: string;
+  salary: string;
+  employmentRequirements: string[];
+  languageRequirement: string;
+  languageDecision: PhdLanguageDecision;
+  languageEvidence: string;
+  languageReason: string;
+  languageConfidence: number;
+  postedAt: string | null;
+  postedAtUnknown: boolean;
+  applicationDeadline: string | null;
+  deadlineTimezone: string;
+  deadlineHasTime: boolean;
+  deadlineStatus: 'open' | 'expired' | 'unknown' | 'closed';
+  deadlineNote: string;
+  expectedStartDate: string;
+  discoveredAt: string;
+  lastSeenAt: string | null;
+  lastVerifiedAt: string | null;
+  saved: boolean;
+  reviewedAt: string | null;
+  status: 'active' | 'expired' | 'closed' | 'duplicate';
+  statusNote: string;
+  bestMatch?: PhdMatch | null;
+}
+
+export interface PhdMatch {
+  id: string;
+  position: string;
+  profile: string | Pick<CandidateProfile, 'id' | 'label' | 'kind' | 'name'>;
+  profileKind: ProfileKind;
+  score: number;
+  scoreCategories: Array<{
+    key: string;
+    label: string;
+    weight: number;
+    score: number;
+    detail: string;
+  }>;
+  matchedTopics: string[];
+  missingTopics: string[];
+  matchedSkills: string[];
+  missingSkills: string[];
+  matchedPublications: string[];
+  qualifications: string[];
+  mandatoryMissing: string[];
+  concerns: string[];
+  strengths: string[];
+  languageDecision: PhdLanguageDecision;
+  reviewRequired: boolean;
+  recommendedCvDocument: string | null;
+  explanation: string;
+  model: string;
+  promptVersion: string;
+  evaluatedAt: string;
+}
+
+export interface PhdDetailResponse {
+  position: PhdPosition;
+  matches: PhdMatch[];
+}
+
+export interface PhdDiscoveryResult {
+  runId: string;
+  status: 'completed' | 'failed';
+  discovered: number;
+  created: number;
+  updated: number;
+  duplicates: number;
+  filteredOut: number;
+  sources: Array<{
+    source: string;
+    status: 'ok' | 'failed' | 'skipped';
+    found: number;
+    created: number;
+    updated: number;
+    duplicates: number;
+    filtered: number;
+    durationMs: number;
+    error: string;
+  }>;
+}
+
+export interface PhdSourceStatus {
+  id: string;
+  label: string;
+  description: string;
+  simulated: boolean;
+  enabled: boolean;
+  configured: boolean;
+  note: string;
+}
+
 export interface ScreeningQuestion {
   questionId: string;
   question: string;
@@ -301,6 +443,12 @@ export interface ScreeningQuestion {
 
 export interface CoverLetterVersion {
   id: string;
+  job?: string | null;
+  phdPosition?: string | null;
+  letterType?: 'job' | 'phd';
+  profile?: string | Pick<CandidateProfile, 'id' | 'label' | 'name' | 'kind'>;
+  generatedText?: string;
+  editedByUser?: boolean;
   version: number;
   subjectLine: string;
   letterText: string;
@@ -318,6 +466,78 @@ export interface CoverLetterVersion {
   uncertainties?: string[];
   wordCount: number;
   createdAt: string;
+}
+
+export interface LetterOptionProfile {
+  profileId: string;
+  profileKind: ProfileKind;
+  label: string;
+  name: string;
+  cvDocumentId: string | null;
+  cvFilename: string;
+  cvReady: boolean;
+  referenceDocumentId: string | null;
+  referenceFilename: string;
+  referenceReady: boolean;
+  recommended: boolean;
+  referenceRecommended: boolean;
+  rank: number;
+  score: number;
+  rationale: string;
+}
+
+/** Shared option payload for job cover letters and PhD academic letters. */
+export interface LetterOptions {
+  jobId?: string;
+  positionId?: string;
+  jobContentHash: string;
+  jobChangedSinceLetter: boolean;
+  selectedCvProfileId: string;
+  selectedReferenceProfileId: string;
+  recommendedCvProfileId: string;
+  recommendedReferenceProfileId: string;
+  selectionRationale: string;
+  limitations: string[];
+  preferencesSaved: boolean;
+  latestLetter: {
+    id: string;
+    version: number;
+    createdAt: string;
+    jobContentHash?: string;
+  } | null;
+  profiles: LetterOptionProfile[];
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  model?: string;
+  sources?: string[];
+  createdAt?: string;
+}
+
+export interface ChatSession {
+  id: string;
+  targetType: 'job' | 'phd';
+  job?: string | null;
+  phdPosition?: string | null;
+  title: string;
+  aiModel?: string;
+  messages: ChatMessage[];
+  lastMessageAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatSessionResponse {
+  session: ChatSession | null;
+}
+
+export interface ChatSendResponse {
+  session: ChatSession;
+  reply: string;
+  model: string;
+  sources: string[];
 }
 
 export type WorkflowStatus =

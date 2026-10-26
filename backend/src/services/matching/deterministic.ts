@@ -3,6 +3,7 @@ import type { Seniority } from '../../config/defaults.js';
 import { normalizeForMatch } from '../../utils/text.js';
 import { titleRelevance } from '../jobs/filters.js';
 import { isEuRemoteLocation } from '../jobs/normalize.js';
+import { scoreJobFit, type MatchCategory, type MatchCategoryKey } from './scoring.js';
 import type { LanguageRequirement } from '../jobs/types.js';
 
 export interface RequirementAssessment {
@@ -24,7 +25,14 @@ export interface AssessmentJob {
 
 export interface DeterministicAssessment {
   score: number;
-  breakdown: { title: number; skills: number; seniority: number; location: number };
+  breakdown: Record<MatchCategoryKey, number>;
+  categories: MatchCategory[];
+  matchedRequired: string[];
+  missingRequired: string[];
+  matchedPreferred: string[];
+  missingPreferred: string[];
+  requiredSkills: string[];
+  preferredSkills: string[];
   matchedSkills: string[];
   missingSkills: string[];
   strengths: string[];
@@ -122,33 +130,21 @@ export function assessDeterministically(
   criteria: { seniority: Seniority[]; countries: string[]; remoteScope: string[] },
 ): DeterministicAssessment {
   const jobText = `${job.title}\n${job.location}\n${job.description ?? ''}\n${(job.tags ?? []).join(' ')}`;
-  const profileSkills = [...new Set(profile.skills ?? [])];
-
-  const titleScore = Math.round(titleRelevance(job.title, profile.targetTitles ?? []) * 30);
-  const matchedSkills = profileSkills.filter((skill) => skillPresent(jobText, skill));
-  const missingSkills = profileSkills.filter((skill) => !skillPresent(jobText, skill)).slice(0, 15);
-  const skillsScore = Math.round(Math.min(1, matchedSkills.length / 7) * 40);
+  const fit = scoreJobFit(job, profile);
 
   const jobSeniority = (job.seniority ?? 'unknown') as Seniority | 'unknown';
   const jobWorkArrangement = job.workArrangement ?? 'unknown';
   const jobLocation = job.location ?? '';
   const jobCountry = job.country ?? '';
-  const seniorityScore = jobSeniority === 'unknown' ? 10 : criteria.seniority.includes(jobSeniority) ? 15 : 0;
 
   const remoteCompatible =
     jobWorkArrangement === 'remote' &&
     (jobCountry === 'Germany' || isEuRemoteLocation(jobLocation));
-  const locationScore =
-    remoteCompatible || jobCountry === 'Germany'
-      ? 15
-      : jobCountry === '' || jobCountry === 'unknown'
-        ? 7
-        : criteria.countries.some((country) => normalizeForMatch(country) === normalizeForMatch(jobCountry))
-          ? 15
-          : 0;
 
-  const breakdown = { title: titleScore, skills: skillsScore, seniority: seniorityScore, location: locationScore };
-  let score = titleScore + skillsScore + seniorityScore + locationScore;
+  const breakdown = fit.breakdown;
+  let score = fit.score;
+  const matchedSkills = fit.matchedSkills;
+  const missingSkills = fit.missingSkills;
 
   const requirements: RequirementAssessment[] = [];
   const mandatoryUnknown: string[] = [];
@@ -290,17 +286,13 @@ export function assessDeterministically(
     mandatoryUnknown.push(requirement);
   }
 
-  if (matchedSkills.length >= 4) {
-    strengths.push(`Strong technology overlap: ${matchedSkills.slice(0, 8).join(', ')}.`);
-  } else if (matchedSkills.length > 0) {
-    strengths.push(`Relevant overlap: ${matchedSkills.join(', ')}.`);
+  strengths.push(...fit.strengths);
+  concerns.push(...fit.concerns);
+  if (matchedSkills.length > 0 && !strengths.some((entry) => entry.includes(matchedSkills[0] ?? ''))) {
+    strengths.push(`Relevant technology overlap: ${matchedSkills.slice(0, 8).join(', ')}.`);
   }
-  if (titleScore >= 20) strengths.push(`Job title closely matches the target titles.`);
   if (jobCountry === 'Germany' || remoteCompatible) {
     strengths.push('Location and work arrangement fit the configured search scope.');
-  }
-  if (missingSkills.length > 0) {
-    concerns.push(`Skills named in the profile but absent from the posting: ${missingSkills.slice(0, 6).join(', ')}.`);
   }
 
   const missingMandatory = requirements.some((item) => item.status === 'missing');
@@ -310,7 +302,7 @@ export function assessDeterministically(
   score = Math.max(0, Math.min(100, Math.round(score)));
 
   const explanationParts = [
-    `Rule-based assessment: title match ${titleScore}/30, skill overlap ${skillsScore}/40 (${matchedSkills.length} of ${profileSkills.length} profile skills found), seniority ${seniorityScore}/15, location ${locationScore}/15.`,
+    fit.explanation,
     languageRequirement === 'german_required'
       ? `The posting mandates German; candidate evidence: ${german}.`
       : languageRequirement === 'german_not_required'
@@ -330,6 +322,13 @@ export function assessDeterministically(
   return {
     score,
     breakdown,
+    categories: fit.categories,
+    matchedRequired: fit.matchedRequired,
+    missingRequired: fit.missingRequired,
+    matchedPreferred: fit.matchedPreferred,
+    missingPreferred: fit.missingPreferred,
+    requiredSkills: fit.requiredSkills,
+    preferredSkills: fit.preferredSkills,
     matchedSkills,
     missingSkills,
     strengths: strengths.slice(0, 6),

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { SearchRunModel } from '../models/SearchRun.js';
 import { objectIdSchema } from '../schemas.js';
 import { paginationSchema, parsePagination, paginated } from '../utils/pagination.js';
@@ -8,11 +9,13 @@ import { serialize } from '../utils/serialize.js';
 export const searchRunsRouter = Router();
 
 searchRunsRouter.get('/', async (req, res) => {
-  const query = paginationSchema.parse(req.query);
+  const query = paginationSchema.extend({ kind: z.enum(['jobs', 'phd']).optional() }).parse(req.query);
   const pagination = parsePagination(query);
+  const filter: Record<string, unknown> = {};
+  if (query.kind) filter.kind = query.kind;
   const [runs, total] = await Promise.all([
-    SearchRunModel.find({}).sort({ startedAt: -1 }).skip(pagination.skip).limit(pagination.limit),
-    SearchRunModel.countDocuments({}),
+    SearchRunModel.find(filter).sort({ startedAt: -1 }).skip(pagination.skip).limit(pagination.limit),
+    SearchRunModel.countDocuments(filter),
   ]);
   res.json(paginated(runs.map((run) => serialize(run)), total, pagination));
 });

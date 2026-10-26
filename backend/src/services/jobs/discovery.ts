@@ -62,7 +62,12 @@ export async function runDiscovery(options: {
   const profiles = await CandidateProfileModel.find({
     kind: { $in: settings.search.profileKinds },
   }).lean();
-  const targetTitles = [...new Set(profiles.flatMap((profile) => profile.targetTitles))];
+  const targetTitles = [
+    ...new Set([
+      ...profiles.flatMap((profile) => profile.targetTitles),
+      ...settings.search.targetTitles,
+    ]),
+  ];
 
   const requestedSources = options.overrides?.sources;
   const enabledAdapters = adapters.filter((adapter) => {
@@ -88,6 +93,7 @@ export async function runDiscovery(options: {
   const perSourceBudget = Math.max(1, Math.floor(totalBudget / enabledAdapters.length));
 
   const run = await SearchRunModel.create({
+    kind: 'jobs',
     status: 'running',
     trigger: options.trigger,
     criteriaSnapshot: {

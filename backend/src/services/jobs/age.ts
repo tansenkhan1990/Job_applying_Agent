@@ -2,12 +2,14 @@ export type AgeEligibility = 'Eligible' | 'Too Recent' | 'Unknown' | 'Expired';
 
 export interface JobAgeAssessment {
   ageEligibility: AgeEligibility;
+  /** Earliest posting date still accepted. Postings on or before this date are too old. */
   eligibleAfter: Date | null;
   ageCheckAt: Date;
   ageReason: string;
 }
 
-export const MIN_APPLICATION_AGE_MONTHS = 3;
+/** Postings this many calendar months old (or older) are excluded. */
+export const MAX_JOB_AGE_MONTHS = 3;
 
 export function startOfUtcDay(date: Date): Date {
   return new Date(
@@ -43,12 +45,13 @@ function formatDate(date: Date | null): string {
 }
 
 /**
- * Determines whether a vacancy is old enough to enter the application workflow.
+ * Determines whether a vacancy is recent enough to be shown and applied to.
  * Uses the original posting date only. `firstSeenAt`/`discoveredAt` are never used as a
  * substitute: an unknown original date stays Unknown and cannot be auto-applied to.
  *
- * The comparison is date-based in UTC: a job posted on 25 July 2026 is eligible from
- * 25 October 2026 (00:00 UTC), not after a fixed 90-day window.
+ * The comparison is date-based in UTC: on 25 October 2026 the cutoff is 25 July 2026, so
+ * a job posted on 25 July is already three calendar months old and is excluded, while a
+ * job posted on 26 July is still eligible. No fixed 90-day arithmetic is used.
  */
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -67,6 +70,11 @@ export function parseLocalCalendarDate(value: string | null | undefined): Date |
   return parsed;
 }
 
+/** The earliest posting date that is still inside the allowed window. */
+export function jobAgeCutoff(months = MAX_JOB_AGE_MONTHS, now = new Date()): Date {
+  return addCalendarMonths(startOfUtcDay(now), -months);
+}
+
 export function assessJobAge(input: {
   postedAt: Date | null | undefined;
   /** The job's local posting date, used instead of the UTC day when the source provides it. */
@@ -78,7 +86,7 @@ export function assessJobAge(input: {
 }): JobAgeAssessment {
   const now = input.now ?? new Date();
   const ageCheckAt = now;
-  const months = input.months ?? MIN_APPLICATION_AGE_MONTHS;
+  const months = input.months ?? MAX_JOB_AGE_MONTHS;
 
   const expiredByDate = Boolean(input.expiresAt && input.expiresAt.getTime() < now.getTime());
   const expiredByStatus = input.status === 'expired' || input.status === 'unavailable';
@@ -104,23 +112,22 @@ export function assessJobAge(input: {
   }
 
   const postedDay = parseLocalCalendarDate(input.postedLocalDate) ?? startOfUtcDay(input.postedAt);
-  const eligibleAfter = addCalendarMonths(postedDay, months);
-  const today = startOfUtcDay(now);
+  const cutoff = jobAgeCutoff(months, now);
 
-  if (today.getTime() < eligibleAfter.getTime()) {
+  if (postedDay.getTime() <= cutoff.getTime()) {
     return {
-      ageEligibility: 'Too Recent',
-      eligibleAfter,
+      ageEligibility: 'Expired',
+      eligibleAfter: cutoff,
       ageCheckAt,
-      ageReason: `Posted on ${formatDate(postedDay)}. Eligible from ${formatDate(eligibleAfter)} (${months} calendar months).`,
+      ageReason: `Posted on ${formatDate(postedDay)}, which is ${months} or more calendar months ago (cutoff ${formatDate(cutoff)}).`,
     };
   }
 
   return {
     ageEligibility: 'Eligible',
-    eligibleAfter,
+    eligibleAfter: cutoff,
     ageCheckAt,
-    ageReason: `Posted on ${formatDate(postedDay)} and at least ${months} calendar months old (eligible since ${formatDate(eligibleAfter)}).`,
+    ageReason: `Posted on ${formatDate(postedDay)} and less than ${months} calendar months old (cutoff ${formatDate(cutoff)}).`,
   };
 }
 

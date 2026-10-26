@@ -7,6 +7,7 @@ import { cn } from './ui';
 const NAV = [
   { to: '/', label: 'Overview', icon: 'grid' },
   { to: '/jobs', label: 'Jobs', icon: 'briefcase' },
+  { to: '/phd', label: 'PhD Opportunities', icon: 'graduation' },
   { to: '/queue', label: 'Apply queue', icon: 'play' },
   { to: '/assistant', label: 'Assistant', icon: 'play' },
   { to: '/profiles', label: 'Profiles', icon: 'users' },
@@ -41,6 +42,13 @@ function Icon({ name }: { name: (typeof NAV)[number]['icon'] }) {
         <svg {...common}>
           <rect x="3" y="7.5" width="18" height="12" rx="2" />
           <path d="M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5M3 12h18" />
+        </svg>
+      );
+    case 'graduation':
+      return (
+        <svg {...common}>
+          <path d="m12 4 9 4.5-9 4.5-9-4.5Z" />
+          <path d="M6.5 11v4.6c0 1.5 2.5 3 5.5 3s5.5-1.5 5.5-3V11M21 8.7v5" />
         </svg>
       );
     case 'users':

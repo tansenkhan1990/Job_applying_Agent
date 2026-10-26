@@ -3,7 +3,9 @@
 A locally running, full-stack job-search assistant. It reads your three CVs and cover
 letters, builds three career profiles, discovers vacancies in Germany and remote EU,
 scores each vacancy against each profile with visible evidence, prepares a tailored
-cover letter, and enforces explicit human approval before any submission.
+cover letter, and enforces explicit human approval before any submission. A separate PhD
+section discovers doctoral positions, estimates research-profile fit, and drafts academic
+cover letters.
 
 React + TypeScript dashboard · Express + TypeScript API · MongoDB · Docker Compose ·
 OpenRouter (optional, with deterministic fallbacks).
@@ -25,6 +27,7 @@ OpenRouter (optional, with deterministic fallbacks).
 - [Documents](#documents)
 - [OpenRouter setup](#openrouter-setup)
 - [Job sources](#job-sources)
+- [PhD opportunities](#phd-opportunities)
 - [Daily workflow](#daily-workflow)
 - [Approval and duplicate safety](#approval-and-duplicate-safety)
 - [Configuration](#configuration)
@@ -47,7 +50,7 @@ Implemented and verified on this machine:
 | Area | Status |
 | --- | --- |
 | Docker Compose backend + MongoDB | ✅ `docker compose up --build` healthy |
-| React dashboard (10 pages) | ✅ builds; dev server and optional nginx container verified |
+| React dashboard (12 pages, incl. Jobs and PhD Opportunities) | ✅ builds; dev server and optional nginx container verified |
 | PDF/DOCX ingestion, hashing, change/removal detection, OCR flag | ✅ automated tests |
 | Document → career-profile mapping (auto + manual) | ✅ automated tests |
 | Three seeded career profiles and CV-based extraction | ✅ AI path + rule-based fallback |
@@ -55,9 +58,17 @@ Implemented and verified on this machine:
 | Remotive integration | ✅ live: 10 raw listings in a 20-job run |
 | Mock source for offline testing | ✅ 8 fictional listings |
 | Normalization, dedupe, German requirement/optional detection and filtering | ✅ automated tests |
-| One-year retention window for discovery (configurable 30–3650 days) plus a three-calendar-month application minimum | ✅ automated tests |
+| Only postings under three calendar months old are listed and applied to (configurable 1–24 months); PhD positions stay until their deadline | ✅ automated tests |
 | Permanent applied-job registry; never re-applies to a stored application | ✅ automated tests |
 | Hybrid matching with explanations and mandatory-requirement review | ✅ automated tests |
+| Deterministic baseline score for every listed job (AI review optional and never the score author) | ✅ automated tests |
+| Job dashboard filters (category, date, date-evidence review, location, arrangement, score, saved/reviewed, cover letter) and sorting | ✅ automated tests for API behaviour; UI builds |
+| Standalone job cover letters with editable drafts and version history (no application created) | ✅ automated tests |
+| Document-grounded letters: all three CVs and all three existing letters are read, the best CV + writing reference is selected per vacancy, and the choice is remembered and overridable | ✅ automated tests |
+| Per-job AI chat panel grounded in the description, CVs, letters and match evidence; conversations stored per job | ✅ automated tests for context/history isolation; UI builds |
+| PhD discovery (Germany + explicitly Germany-remote EU), transparent profile matching, academic letters | ✅ automated tests |
+| Per-PhD-position chat and CV/reference selection for the academic letter | ✅ automated tests |
+| Real external PhD source | ⚠️ configure a permitted JSON feed via `PHD_FEED_URL`; the bundled source is clearly simulated |
 | Tailored cover letters with grounding checks | ✅ AI + template fallback |
 | Application preparation, review, approval, submission guards | ✅ integration tests |
 | PDF/DOCX cover-letter export, CSV history export | ✅ end-to-end verified |
@@ -93,8 +104,11 @@ Backend layers:
 - `services/documents` — safe scanning, parsing, hashing, mapping.
 - `services/jobs` — adapters, normalization, filters, dedupe, discovery, verification.
 - `services/matching` — deterministic scoring + AI evaluation + merge/caps.
-- `services/ai` — OpenRouter client, retries, JSON validation, prompts, status.
-- `services/coverLetters` — generation, grounding, PDF/DOCX rendering.
+- `services/phd` — PhD adapters, normalization, discovery, transparent profile scoring, academic letters.
+- `services/ai` — OpenRouter client, retries, JSON validation, prompts, status, ranked
+  document selection (`candidateDocuments`) and per-target grounded chat (`chat`).
+- `services/coverLetters` — generation, grounding, PDF/DOCX rendering, per-job letter
+  options/preferences and version history.
 - `services/applications` — preparation, answers, approval, state machine, submission.
 - `models/` — Mongoose schemas and indexes.
 
@@ -150,11 +164,22 @@ Backend layers:
    1. **Documents** → confirm all six files are `processed` and mapped; press **Rescan**.
    2. **Profiles** → **Extract from CV**, review every field, then **Approve profile**.
    3. **Settings** → choose a model (optional), enable sources, review thresholds.
-   4. **Jobs** → **Run discovery** → **Evaluate** a vacancy.
-   5. Open a job → **Prepare application** → review letter and answers → **Approve**.
-   6. **Submit application**. For real employers the result is `NEEDS_MANUAL_ACTION` with
-      the employer URL; after you finish their form, record your confirmation.
-   7. **Applications** → track states and export CSV.
+   4. **Jobs** → **Run discovery** → filter by category, date, location, arrangement and
+      match score; save jobs or mark them reviewed.
+   5. Open a job → review the recommended **CV to send** and **reference cover letter**
+      (all three of each are read; change the selects to override) → **Generate cover
+      letter** → edit/save the draft → copy or download PDF/DOCX. Generating a letter does
+      not create or submit an application. The **Ask about this job** panel answers
+      questions from the description, your CVs, letters and stored match evidence, and
+      keeps its conversation with that job.
+   6. For a full application: **Prepare application** → review letter and answers →
+      **Approve** → **Submit application**. For real employers the result is
+      `NEEDS_MANUAL_ACTION` with the employer URL; after you finish their form, record your
+      confirmation.
+   7. **PhD Opportunities** → enable/configure a source → **Search PhD positions** →
+      evaluate profiles → open a position → **Generate PhD cover letter** and use the same
+      chat panel for research-topic questions.
+   8. **Applications** → track states and export CSV.
 
 Alternative production-style frontend container:
 
@@ -268,12 +293,20 @@ default.
 Adapters implement a common interface (`searchJobs`, optional `getJobDetails`/`verifyJob`).
 Discovery:
 
-- **stores vacancies inside the retention window — one year by default**
-  (Settings → retention, 30–3650 days). The application workflow separately requires an
-  original posting date at least three calendar months old. Listings whose source provides
-  no publication date are kept and flagged `posted_date_unknown` rather than silently
-  assumed fresh;
+- **keeps only vacancies posted less than three calendar months ago** (Settings → maximum
+  posting age, 1–24 months). The retention setting (30–3650 days) is only a hard cap when
+  that window is relaxed. Every date filter is clamped to the three-month floor, so a broad
+  or custom range cannot reveal an older vacancy. Listings whose source provides no
+  publication date are stored but **excluded from normal results**; they appear only in a
+  separate date-verification review. PhD positions are not age-limited and stay listed
+  while their deadline is verified open;
 - normalizes title, employer, location, work arrangement, language requirement, seniority;
+- enforces the geographic rule in the backend: hybrid/on-site roles are accepted only when
+  the location is verifiably in Germany; outside Germany only remote roles are accepted.
+  Recognized non-German cities (for example Paris, London, Amsterdam, Zurich, Eindhoven)
+  are classified instead of being treated as “unknown”, and a generic remote label
+  (`Remote`, `Remote job`, `Homeoffice`, `Worldwide`) is retained rather than rejected.
+  Explicit remote-from-Germany evidence is stored as `remoteEligibleFromGermany`;
 - filters internships, unpaid roles, stale postings, out-of-scope locations and excluded
   keywords;
 - **keeps only vacancies where German is not required or optional** by default: postings
@@ -291,21 +324,85 @@ Adding another permitted source: implement a `JobSourceAdapter`, register it in
 `backend/src/services/jobs/adapters/index.ts`, expose an enable toggle, and add a fixture
 test. Do not add scraping that violates a site's terms.
 
+## PhD opportunities
+
+The **PhD Opportunities** section is separate from the job dashboard and targets doctoral
+positions aligned with a computer-science background in three priority areas:
+
+- **Artificial Intelligence** — machine learning, LLMs and generative AI, NLP, knowledge
+  graphs and graph machine learning, AI systems;
+- **Cybersecurity** — information security, secure software systems, application security
+  and AI security;
+- **Software Engineering** — architecture, quality and testing, developer tools, AI for
+  software engineering and distributed systems.
+
+Other computer-science research is kept as **Other relevant research**. The match is
+evidence-based; the list of example areas does not make you qualified for every one of
+them.
+
+Geographic rule:
+
+- positions in Germany may be onsite, hybrid or remote;
+- positions outside Germany are included only when the advertisement is explicitly remote
+  **and** explicitly permits remote work from Germany. “Flexible working” is not treated as
+  remote eligibility. A Dutch hybrid fixture is intentionally filtered out by the test suite.
+
+Language: postings that explicitly mandate German are excluded by default; ambiguous
+postings are kept and marked **Needs Review**. Every position shows the evidence sentence
+used for classification.
+
+Each position is classified deterministically into **Artificial Intelligence**,
+**Cybersecurity**, **Software Engineering** or **Other relevant research**, with the matched
+evidence stored. The list can be filtered by research area, institution, country, topic,
+profile match, closing window and deadline-verification status.
+
+Deadlines are the eligibility rule for PhDs, not posting age. A position posted six months
+ago remains visible if its verified deadline is still in the future. A date-only deadline
+stays open through the end of that day in the institution's timezone; an explicit time is
+compared exactly. Expired and closed/filled positions are excluded from normal results.
+Positions with no stated deadline are **not** assumed open: they appear only in the separate
+**Deadline needs verification** group, with the original source link and last-verified date.
+
+Sources:
+
+| Source | Access | Behaviour |
+| --- | --- | --- |
+| **Simulated PhD source** | No network | 7 clearly labelled fixtures with `example.org` links, covering strong matches, a remote-EU role, a hybrid non-German role and a German-mandatory role |
+| **Configured PhD feed** | Permitted JSON feed | Disabled until `PHD_FEED_URL` is set. Reads an array (or `{positions:[...]}`) with `title`, `institution`, `url` and optional topic/skills/deadline fields. No HTML scraping or pagination bypass. |
+
+PhD discovery deduplicates by `(source, sourceJobId)`, canonical URL and a normalized
+institution/title/country fingerprint. A failing source never deletes previously stored
+positions; per-source errors are returned and run history is stored in `SearchRun` with
+`kind: "phd"`.
+
+The PhD score is a transparent weighted estimate (**research topic 30%**, technical skills
+25%, research experience/publications 20%, academic qualifications 15%, methods/tools 10%),
+normalized over the categories that apply. A missing mandatory qualification (for example a
+required master's degree) caps the score and flags the position. It is explicitly labelled
+an estimated profile match, not an admission probability.
+
+Each position supports **Generate PhD cover letter**: an academic English letter using the
+selected CV, evidenced publications, and the advertised topic. Drafts are editable, stored
+with version history, copyable, downloadable as PDF/DOCX, and never submit an application.
+
 ## Daily workflow
 
-1. **Discover** — bounded search in enabled sources for vacancies inside the retention
-   window (one year by default). Each run is recorded with per-source counts and errors; only
-   one run may execute at a time. The per-source split respects the overall `maxJobsPerRun`
-   budget. Only vacancies where German is not required or optional are stored by default
-   (Settings → **Only keep jobs where German is not required or optional**).
+1. **Discover** — bounded search in enabled sources for vacancies posted within the last
+   three calendar months (configurable 1–24 months, but a broader window never bypasses the
+   professional-job age rule unless you deliberately widen it). Each run is recorded with
+   per-source counts and errors; only one run may execute at a time. The per-source split
+   respects the overall `maxJobsPerRun` budget. Only vacancies where German is not required
+   or optional are stored by default (Settings → **Only keep jobs where German is not
+   required or optional**).
 
    Seeded profile skills are only search hints. Running **Extract from CV** replaces them
    with skills actually evidenced by that CV, so match scores cannot be inflated by
    technologies you do not have.
 2. **Evaluate** — deterministic filters and scoring first, then optional AI evaluation.
-   The final score blends both, but hard requirements cap it. Missing or unknown
-   mandatory requirements force manual review. Scores are relevance explanations, not
-   probabilities of being hired.
+   Every listed job gets a documented deterministic baseline score, so an unscored job is
+   never shown; the explicit **Evaluate** action adds the optional AI review layer. Hard
+   requirements cap the score, and missing or unknown mandatory requirements force manual
+   review. Scores are relevance explanations, not probabilities of being hired.
 3. **Prepare** — only for an approved profile with a mapped CV. The app selects that
    profile's CV, generates a tailored letter from the CV, original letter, profile and
    job, extracts explicitly stated screening questions, and creates a
@@ -365,6 +462,8 @@ Copy `.env.example` to `.env`. `.env` is git-ignored.
 | `AI_MAX_INPUT_CHARS` | `24000` | Prompt size guard |
 | `DOCUMENTS_PATH` | `/app/documents` | Read-only document root |
 | `MAX_DOCUMENT_SIZE_MB` | `10` | Per-file size limit |
+| `PHD_FEED_URL` | empty | Optional permitted JSON feed of PhD positions; empty disables the real-PhD source |
+| `PHD_FEED_LABEL` | `Configured PhD feed` | Display label for that feed |
 | `FRONTEND_ORIGIN` | `http://localhost:5173,http://127.0.0.1:5173` | Allowed CORS origins |
 | `LOG_LEVEL` | `info` | Pino level |
 | `SCHEDULER_ENABLED` | `false` | Enable scheduler inside the API process |
@@ -422,6 +521,18 @@ GET    /api/documents           POST   /api/documents/rescan
 PATCH  /api/documents/:id/mapping
 POST   /api/jobs/search         GET    /api/jobs            GET  /api/jobs/:id
 POST   /api/jobs/:id/match      POST   /api/jobs/:id/verify
+PATCH  /api/jobs/:id/state      POST   /api/jobs/:id/cover-letter
+GET    /api/jobs/:id/cover-letters
+PATCH  /api/jobs/:id/cover-letters/:letterId
+GET    /api/jobs/:id/cover-letters/:letterId/download?format=pdf|docx
+POST   /api/phd/search          GET    /api/phd/positions
+GET    /api/phd/positions/:id   POST   /api/phd/positions/:id/match
+PATCH  /api/phd/positions/:id/state
+POST   /api/phd/positions/:id/cover-letter
+GET    /api/phd/positions/:id/cover-letters
+PATCH  /api/phd/positions/:id/cover-letters/:letterId
+GET    /api/phd/positions/:id/cover-letters/:letterId/download?format=pdf|docx
+GET    /api/phd/sources
 GET    /api/matches             GET    /api/matches/:id
 POST   /api/applications/prepare
 GET    /api/applications        GET    /api/applications/:id
@@ -452,13 +563,27 @@ MongoDB collections (Mongoose):
 - **Job** — normalized listing, source ids, URLs, location, arrangement, language,
   seniority, fingerprint, freshness, merged sources, and the posting-age fields
   `postedAt` (original publication date), `firstSeenAt`, `lastSeenAt`, `ageEligibility`
-  (`Eligible` / `Too Recent` / `Unknown` / `Expired`), `eligibleAfter` and `ageCheckAt`.
-  Age is computed with calendar-month arithmetic, never `firstSeenAt` in place of a missing
-  `postedAt`.
+  (`Eligible` / `Unknown` / `Expired`, with legacy `Too Recent` records still readable),
+  `eligibleAfter` (the cutoff date) and `ageCheckAt`. Age is computed with calendar-month
+  arithmetic, never `firstSeenAt` in place of a missing `postedAt`.
 - **JobMatch** — profile-specific score, breakdown, matched/missing skills, strengths,
   concerns, requirements, review flags, model and prompt version.
-- **CoverLetter** — immutable versions per job/profile/application with grounding result
-  and content hash.
+- **PhdPosition** — normalized doctoral listing: institution, group/supervisor, topic,
+  required/preferred skills, qualifications, languages with evidence, funding, salary,
+  deadline, expected start, original posting date, explicit remote-from-Germany flag,
+  source metadata, simulated flag, saved/reviewed state and dedupe keys.
+- **PhdMatch** — estimated profile match with category breakdown, matched/missing topics,
+  skills and publications, mandatory gaps, concerns and recommended CV.
+- **CoverLetter** — immutable versions per job/PhD position and profile (optionally linked
+  to an application) with grounding result, generated text, user-edited text and content
+  hash. Job and PhD letters are distinguished by `letterType`. Each version records the
+  selected CV document, the reference cover-letter document and profile, the model, the
+  selection rationale, every source document with its role, and a hash of the posting text
+  at generation time (used to warn when the description changed).
+- **ChatSession** — one collection for job and PhD conversations. `targetType` plus `job`
+  or `phdPosition` scopes every query, so a session id from one target is rejected for
+  another. Stores title, model, messages (role, content, sources, timestamp) and a context
+  snapshot (target hash, selected CV/letter, document ids, limitations).
 - **Application** — state machine history, selected documents and hashes, questions,
   approval record, submission evidence, `appliedAt`, idempotency and duplicate keys. Each
   record snapshots the job title/company/location, `postedAt` and `ageEligibility`, the
@@ -493,6 +618,10 @@ Coverage:
 - jobs API filter that hides German-mandatory vacancies from the default list
 - retention window, unknown publication dates flagged
 - internships/unpaid/expired/location/title filters
+- geographic eligibility: non-German on-site/hybrid cities are excluded, German on-site
+  roles are kept, and generic `Remote`/`Homeoffice` labels are kept for review
+- job-source failure retention: a temporarily failing source is reported without deleting
+  previously discovered vacancies
 - dedupe by source id, canonical URL and batch duplicates
 - mock discovery, search-run persistence, overlap rejection, repeat runs
 - deterministic scoring, mandatory-requirement caps, AI schema validation
@@ -505,13 +634,39 @@ Coverage:
   manual-action flow, CSV export
 - applied-job registry: a role applied to 100 days ago is still blocked when reposted,
   and the jobs list exposes the stored application for each vacancy
-- posting age: exactly three calendar months is eligible, anything newer is `Too Recent`,
+- posting age: exactly three calendar months is excluded, newer postings are `Eligible`,
   month-end clamping, unknown dates never enter the workflow, an old but closed listing is
-  `Expired`, and a reposted job is not treated as old from `firstSeenAt`
+  `Expired`, and a reposted job is not treated as fresh from `firstSeenAt`
+- date-review separation: unknown-date jobs are absent from normal results and returned only
+  by `ageEligibility=Unknown`, while `postedWithinDays` and custom `postedAfter` ranges are
+  clamped to the three-month floor
+- PhD research areas (AI, cybersecurity, software engineering, other), timezone-aware
+  date-only deadlines, explicit deadline times, old-but-open positions, expired and
+  closed exclusions, and the unknown-deadline verification group
 - application queue and assistant preflight: age, language, availability, duplicate and
   match gates; a filled-but-unconfirmed form stays `AWAITING_REVIEW`; a confirmed
   submission cannot be submitted again
 - form-field mapping and screening-question extraction
+- job dashboard API filters: saved/reviewed state, date window, category, score bands,
+  score sorting, has-cover-letter
+- standalone job cover letter: generate → list → edit → regenerate (v1 → v2) with zero
+  applications created
+- letter options expose all three CVs and letters, recommend one pair, persist a per-job
+  override, record source-document roles, and flag a materially changed description
+- a missing/empty job description is reported in the letter options and stored in the
+  letter's `uncertainties`; the fallback draft says the posting had no description instead
+  of claiming to have analysed one
+- per-job chat: history is replayed on follow-ups, a session id from another job is
+  rejected, contexts contain only that job's description, and sessions persist in MongoDB
+- chat prompts ask for readable prose while structured tasks alone request JSON
+- PhD chat stays PhD-scoped (no job session created) and carries its own follow-up history
+- PhD fixture labeling, geography rule (German hybrid out, Dutch hybrid out, explicitly
+  Germany-remote EU in), German-mandatory exclusion, failed-source retention
+- configured PhD JSON feed normalization (missing fields stay empty/unknown)
+- PhD chat isolation between two positions (separate history, cross-position session id
+  rejected)
+- PhD matching category breakdown, mandatory master's gap flag, publication/topic evidence
+- PhD letter generation, editing, version increment and no-application side effect
 - application history survives a database restart on the same data directory (the Docker
   named volume does the same across container recreations)
 
@@ -581,7 +736,17 @@ authentication because this is a single-user local application; do not change th
   mock vacancies and is labelled as simulated.
 - **No OCR.** Scanned PDFs are detected and blocked for extraction.
 - **Source search is API-limited.** Arbeitnow has no keyword parameter (we page and
-  prefilter); Remotive returns remote roles only. Neither source is scraped.
+  prefilter); Remotive returns remote roles only. Neither source is scraped. A non-remote
+  listing whose location cannot be verified as German is not stored, so a few German
+  on-site roles in very small towns may be missed until the city is recognised.
+- **Existing rows are not deleted when rules change.** Discovery applies the current
+  geographic and language rules to new/updated listings; jobs stored before a rule change
+  remain visible until they expire or are reclassified.
+- **No public PhD job API is bundled.** EURAXESS and most university portals have no
+  documented public jobs API, so the bundled PhD source is simulated and clearly labelled.
+  Real PhD discovery requires configuring a permitted JSON feed (`PHD_FEED_URL`) or adding
+  an adapter for a source whose terms allow it. Nothing is presented as a real vacancy until
+  such a source is configured.
 - **AI is optional.** Deterministic scoring is transparent but less nuanced than a good
   model; the template letter must be personalised.
 - **Matching cannot verify legal eligibility** (visa, work authorization, clearance). Such
@@ -613,8 +778,8 @@ authentication because this is a single-user local application; do not change th
 │   ├── src/
 │   │   ├── api/             typed fetch client
 │   │   ├── components/      layout, UI, toast, modal, match card
-│   │   └── pages/           overview, jobs, job detail, profiles, documents,
-│   │                        applications, application review, settings
+│   │   └── pages/           overview, jobs, job detail, PhD list/detail, profiles,
+│   │                        documents, applications, application review, settings
 │   ├── Dockerfile + nginx.conf
 │   └── package.json
 ├── documents/               read-only user documents (git-ignored contents)

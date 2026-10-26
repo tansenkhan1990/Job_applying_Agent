@@ -58,6 +58,26 @@ export function errorHandler(
     }
   }
 
+  // Database unavailability is a dependency failure, not a bug in the request. Report it
+  // as 503 so clients and container health checks can back off instead of treating it as a
+  // generic server error.
+  if (
+    error instanceof Error &&
+    (['MongoServerSelectionError', 'MongoNetworkError'].includes(error.name) ||
+      /ECONNREFUSED|server selection timed out|MongoDB is not connected|buffering timed out/i.test(
+        error.message,
+      ))
+  ) {
+    res.status(503).json({
+      error: {
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The database is temporarily unavailable. Try again shortly.',
+        requestId,
+      },
+    });
+    return;
+  }
+
   logger.error(
     { message: error instanceof Error ? error.message : 'unknown', requestId },
     'Unhandled API error',

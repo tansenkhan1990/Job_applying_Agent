@@ -6,6 +6,7 @@ import { ensureDefaultProfiles } from './services/profilesService.js';
 import { getSettings } from './services/settingsService.js';
 import { rescanDocuments } from './services/documents/ingestion.js';
 import { startScheduler } from './services/scheduler.js';
+import { backfillPhdMetadata } from './services/phd/metadata.js';
 
 async function main(): Promise<void> {
   if (!env.APPROVAL_REQUIRED) {
@@ -16,6 +17,12 @@ async function main(): Promise<void> {
   await connectDb();
   await ensureDefaultProfiles();
   await getSettings();
+  await backfillPhdMetadata().catch((error) => {
+    logger.warn(
+      { error: error instanceof Error ? error.message : 'unknown' },
+      'PhD metadata backfill failed',
+    );
+  });
 
   const app = createApp();
   const server = app.listen(env.PORT, '0.0.0.0', () => {

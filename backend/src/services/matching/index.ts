@@ -18,6 +18,8 @@ import type { JobDoc, ProfileDoc } from '../../types/models.js';
 export interface MatchOptions {
   profileIds?: string[];
   profileKinds?: string[];
+  /** Score with the documented deterministic model only; skip the optional AI review. */
+  deterministicOnly?: boolean;
   force?: boolean;
 }
 
@@ -150,7 +152,9 @@ export async function matchJob(jobId: string, options: MatchOptions = {}) {
       : null;
     const cvText = cvDoc?.text ?? '';
 
-    const ai = await evaluateWithAi({ job, profile, assessment, cvText, settings, model });
+    const ai = options.deterministicOnly
+      ? null
+      : await evaluateWithAi({ job, profile, assessment, cvText, settings, model });
 
     let score = assessment.score;
     let explanation = assessment.explanation;
@@ -165,8 +169,10 @@ export async function matchJob(jobId: string, options: MatchOptions = {}) {
     let aiScore: number | null = null;
 
     if (ai) {
+      // The displayed percentage always comes from the transparent weighted model. AI is
+      // used only as an additional review/evidence layer, never as the score author.
       aiScore = Math.round(ai.score);
-      score = capScore(Math.round(ai.score * 0.6 + assessment.score * 0.4), assessment);
+      score = capScore(assessment.score, assessment);
       promptInjectionDetected = ai.promptInjectionDetected;
       reviewRequired = reviewRequired || ai.promptInjectionDetected;
       matchedSkills = mergeUnique(ai.matchedSkills, assessment.matchedSkills);
@@ -174,7 +180,7 @@ export async function matchJob(jobId: string, options: MatchOptions = {}) {
       strengths = mergeUnique(ai.strengths, assessment.strengths).slice(0, 6);
       concerns = mergeUnique(ai.concerns, assessment.concerns).slice(0, 8);
       mandatoryUnknown = mergeUnique(ai.mandatoryUnknown, assessment.mandatoryUnknown);
-      explanation = ai.explanation;
+      explanation = `${assessment.explanation} AI review: ${ai.explanation}`;
       languageAssessment = {
         requiredLanguage: ai.languageAssessment.requiredLanguage ?? '',
         mandatory: ai.languageAssessment.mandatory,
@@ -186,24 +192,22 @@ export async function matchJob(jobId: string, options: MatchOptions = {}) {
         ]).slice(0, 8);
       }
       if (ai.mandatoryRequirementsMet === false) {
-        score = Math.min(score, 55);
         reviewRequired = true;
       }
       if (ai.mandatoryRequirementsMet === null || mandatoryUnknown.length > 0) {
-        score = Math.min(score, 75);
         reviewRequired = true;
       }
       if (promptInjectionDetected) {
         concerns = mergeUnique(concerns, [
           'The job text contains instructions aimed at the AI. They were ignored and this match needs manual review.',
         ]).slice(0, 8);
-        score = Math.min(score, 50);
       }
-    } else if (!aiConfigured() || !model) {
+      score = capScore(score, assessment);
+    } else if (!options.deterministicOnly && (!aiConfigured() || !model)) {
       concerns = mergeUnique(concerns, [
         'AI evaluation is unavailable, so this score uses deterministic rules only.',
       ]).slice(0, 8);
-    } else {
+    } else if (!options.deterministicOnly) {
       concerns = mergeUnique(concerns, [
         'AI evaluation failed; this score uses deterministic rules only.',
       ]).slice(0, 8);
@@ -230,6 +234,13 @@ export async function matchJob(jobId: string, options: MatchOptions = {}) {
           deterministicScore: assessment.score,
           aiScore,
           scoreBreakdown: assessment.breakdown,
+          scoreCategories: assessment.categories.slice(0, 8),
+          matchedRequired: assessment.matchedRequired.slice(0, 30),
+          missingRequired: assessment.missingRequired.slice(0, 30),
+          matchedPreferred: assessment.matchedPreferred.slice(0, 30),
+          missingPreferred: assessment.missingPreferred.slice(0, 30),
+          requiredSkills: assessment.requiredSkills.slice(0, 30),
+          preferredSkills: assessment.preferredSkills.slice(0, 30),
           matchedSkills: matchedSkills.slice(0, 30),
           missingSkills: missingSkills.slice(0, 30),
           strengths,
@@ -264,6 +275,43 @@ export async function matchJob(jobId: string, options: MatchOptions = {}) {
   }
 
   return results;
+}
+
+/**
+ * Guarantee that every visible vacancy has an explainable baseline score. Jobs that were
+ * discovered before matching, or whose AI evaluation failed, get the deterministic model
+ * without an AI call. Existing richer evaluations are never overwritten.
+ */
+export async function ensureDeterministicMatches(jobIds: string[]): Promise<void> {
+  if (jobIds.length === 0) return;
+  const settings = await getSettings();
+  const profiles = await CandidateProfileModel.find({
+    kind: { $in: settings.search.profileKinds },
+  }).select('_id');
+  if (profiles.length === 0) return;
+
+  const existing = await JobMatchModel.find({ job: { $in: jobIds } })
+    .select('job profile')
+    .lean();
+  const scored = new Set(existing.map((match) => `${match.job}:${match.profile}`));
+
+  for (const jobId of jobIds) {
+    const missing = profiles
+      .filter((profile) => !scored.has(`${jobId}:${profile._id}`))
+      .map((profile) => String(profile._id));
+    if (missing.length === 0) continue;
+    try {
+      await matchJob(jobId, { profileIds: missing, deterministicOnly: true });
+    } catch (error) {
+      logger.warn(
+        {
+          jobId,
+          error: error instanceof Error ? error.message : 'unknown',
+        },
+        'Deterministic match backfill failed',
+      );
+    }
+  }
 }
 
 export async function matchJobsBatch(jobIds: string[], options: MatchOptions = {}) {

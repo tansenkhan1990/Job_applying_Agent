@@ -176,16 +176,25 @@ export interface SearchCriteria {
   seniority: Seniority[];
   minRelevanceScore: number;
   maxJobsPerRun: number;
-  /** Maximum posting age retained. This is not the application threshold. */
+  /** Hard cap on retained posting age, independent of the calendar-month window. */
   freshnessDays: number;
-  /** Minimum calendar months between the original posting date and applying. */
-  minAgeMonths: number;
+  /** Postings this many calendar months old (or older) are hidden and not applied to. */
+  maxAgeMonths: number;
   excludeInternships: boolean;
   excludeUnpaid: boolean;
   excludeGermanRequired: boolean;
   excludeKeywords: string[];
   includeKeywords: string[];
+  /** Extra target job titles added in Settings, applied on top of the profile titles. */
+  targetTitles: string[];
   sources: Record<string, boolean>;
+}
+
+export interface PhdSearchCriteria {
+  countries: string[];
+  includeEuRemote: boolean;
+  excludeGermanRequired: boolean;
+  maxPositionsPerRun: number;
 }
 
 export interface AppSettings {
@@ -195,6 +204,7 @@ export interface AppSettings {
     maxOutputTokens: number;
   };
   search: SearchCriteria;
+  phd: PhdSearchCriteria;
   schedule: {
     enabled: boolean;
     intervalMinutes: number;
@@ -226,21 +236,28 @@ export function defaultSettings(): AppSettings {
       seniority: ['mid', 'senior'],
       minRelevanceScore: 80,
       maxJobsPerRun: 40,
-      // Discovery retains up to a year of postings; the application queue applies the
-      // stricter minimum-age rule below (three calendar months by default).
+      // Discovery keeps only postings inside the three-calendar-month window below; the
+      // one-year retention cap is a hard ceiling when that window is relaxed.
       freshnessDays: 365,
-      minAgeMonths: 3,
+      maxAgeMonths: 3,
       excludeInternships: true,
       excludeUnpaid: true,
       // Keep only vacancies where German is not required or is merely optional.
       excludeGermanRequired: true,
       excludeKeywords: ['commission only', 'unpaid', 'volunteer'],
       includeKeywords: [],
+      targetTitles: [],
       sources: {
         arbeitnow: true,
         remotive: true,
         mock: env.ENABLE_MOCK_SOURCE,
       },
+    },
+    phd: {
+      countries: ['Germany'],
+      includeEuRemote: true,
+      excludeGermanRequired: true,
+      maxPositionsPerRun: 60,
     },
     schedule: {
       enabled: false,
@@ -257,6 +274,8 @@ export function defaultSettings(): AppSettings {
       arbeitnow: { enabled: true },
       remotive: { enabled: true },
       mock: { enabled: env.ENABLE_MOCK_SOURCE },
+      phd_mock: { enabled: env.ENABLE_MOCK_SOURCE },
+      phd_feed: { enabled: false },
     },
   };
 }
@@ -264,6 +283,8 @@ export function defaultSettings(): AppSettings {
 export const PROMPT_VERSIONS = {
   match: 'match-v1',
   coverLetter: 'cover-letter-v1',
+  phdCoverLetter: 'phd-cover-letter-v1',
+  chat: 'job-chat-v1',
   profileExtraction: 'profile-extract-v1',
   screeningQuestions: 'screening-questions-v1',
 } as const;

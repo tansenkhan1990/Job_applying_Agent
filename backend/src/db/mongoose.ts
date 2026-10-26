@@ -33,11 +33,27 @@ export function dbReady(): boolean {
   return mongoose.connection.readyState === 1;
 }
 
-export async function pingDb(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+export async function pingDb(
+  timeoutMs = 2_000,
+): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
   const started = Date.now();
   try {
-    if (!mongoose.connection.db) throw new Error('No MongoDB connection');
-    await mongoose.connection.db.admin().ping();
+    // Do not wait for the driver's server-selection timeout: a health check must answer
+    // quickly even when MongoDB is unreachable, so the container is marked unhealthy and
+    // the dashboard can show the degraded state instead of hanging.
+    if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+      throw new Error('MongoDB is not connected');
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('MongoDB ping timed out')), timeoutMs);
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([mongoose.connection.db.admin().ping(), timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     return { ok: true, latencyMs: Date.now() - started };
   } catch (error) {
     return {

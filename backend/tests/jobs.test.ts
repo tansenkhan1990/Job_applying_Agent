@@ -27,7 +27,7 @@ const baseCriteria: JobSearchCriteria = {
   excludeUnpaid: true,
   excludeGermanRequired: true,
   freshnessDays: 30,
-  minAgeMonths: 3,
+  maxAgeMonths: 3,
   maxJobs: 20,
 };
 
@@ -79,10 +79,22 @@ describe('mock job source', () => {
 });
 
 describe('freshness window', () => {
-  it('defaults to a three-calendar-month application minimum and one-year retention', async () => {
+  it('defaults to a three-calendar-month posting window and one-year retention cap', async () => {
     const settings = await getSettings();
-    expect(settings.search.minAgeMonths).toBe(3);
+    expect(settings.search.maxAgeMonths).toBe(3);
     expect(settings.search.freshnessDays).toBe(365);
+  });
+
+  it('rejects vacancies that are three or more calendar months old', async () => {
+    const [recent] = await mockAdapter.searchJobs(baseCriteria);
+    const stale = {
+      ...recent,
+      sourceJobId: 'synthetic-old',
+      postedAt: new Date(Date.now() - 120 * 86_400_000),
+    };
+    const outcome = applyDeterministicFilters(stale, baseCriteria);
+    expect(outcome.included).toBe(false);
+    expect(outcome.reasons).toContain('older_than_max_age');
   });
 
   it('rejects vacancies older than the retention window', async () => {
@@ -239,7 +251,7 @@ describe('discovery runs', () => {
     expect(jobs.length).toBeGreaterThan(0);
     for (const job of jobs) {
       expect(job.postedAt).toBeInstanceOf(Date);
-      expect(['Eligible', 'Too Recent']).toContain(job.ageEligibility);
+      expect(job.ageEligibility).toBe('Eligible');
       expect(job.ageReason.length).toBeGreaterThan(10);
       expect(job.eligibleAfter).toBeInstanceOf(Date);
     }
@@ -268,5 +280,25 @@ describe('discovery runs', () => {
     expect(first.created).toBe(3);
     expect(second.created).toBe(0);
     expect(second.updated).toBe(3);
+  });
+
+  it('keeps previously discovered jobs when a source is temporarily unavailable', async () => {
+    await seedApprovedProfiles();
+    await runDiscovery({ trigger: 'manual', overrides: { sources: ['mock'] } });
+    const before = await JobModel.countDocuments();
+    expect(before).toBeGreaterThan(0);
+
+    const original = mockAdapter.searchJobs;
+    mockAdapter.searchJobs = async () => {
+      throw new Error('Source temporarily unavailable (simulated)');
+    };
+    try {
+      const result = await runDiscovery({ trigger: 'manual', overrides: { sources: ['mock'] } });
+      expect(result.status).toBe('failed');
+      expect(result.sources[0].error).toMatch(/temporarily unavailable/i);
+    } finally {
+      mockAdapter.searchJobs = original;
+    }
+    expect(await JobModel.countDocuments()).toBe(before);
   });
 });

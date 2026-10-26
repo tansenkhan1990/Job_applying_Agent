@@ -109,7 +109,7 @@ export function ApplicationQueuePage() {
       {!queue.isLoading && !queue.error && items.length === 0 ? (
         <EmptyState
           title="No eligible applications queued"
-          description="Prepare an application from a job that is language-eligible and was originally posted at least three calendar months ago. Too-recent and unknown-date jobs stay in job discovery for review."
+          description="Prepare an application from a job that is language-eligible and was posted less than three calendar months ago. Unknown-date jobs stay in job discovery for review."
           action={
             <Link to="/jobs">
               <Button variant="primary">Browse jobs</Button>

@@ -153,9 +153,8 @@ export function ApplicationsPage() {
           >
             <option value="">Any posting age</option>
             <option value="Eligible">Age eligible</option>
-            <option value="Too Recent">Too recent</option>
             <option value="Unknown">Date unknown</option>
-            <option value="Expired">Expired</option>
+            <option value="Expired">Older or expired</option>
           </Select>
           <Select
             value={languageDecision}

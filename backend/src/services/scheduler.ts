@@ -3,6 +3,7 @@ import { JobModel } from '../models/Job.js';
 import { JobMatchModel } from '../models/JobMatch.js';
 import { getSettings, acquireSchedulerLock, releaseSchedulerLock } from './settingsService.js';
 import { runDiscovery } from './jobs/discovery.js';
+import { runPhdDiscovery } from './phd/discovery.js';
 import { matchJobsBatch } from './matching/index.js';
 import { logger } from '../utils/logger.js';
 
@@ -14,7 +15,9 @@ let ticking = false;
 let schedulerStartedAt = Date.now();
 
 async function lastScheduledRun(): Promise<Date | null> {
-  const run = await SearchRunModel.findOne({ trigger: 'scheduled' }).sort({ startedAt: -1 });
+  const run = await SearchRunModel.findOne({ trigger: 'scheduled', kind: 'jobs' }).sort({
+    startedAt: -1,
+  });
   return run?.startedAt ?? null;
 }
 
@@ -54,6 +57,18 @@ async function tick(): Promise<void> {
       const result = await runDiscovery({ trigger: 'scheduled' });
       logger.info({ runId: result.runId, created: result.created }, 'Scheduled discovery completed');
       await scoreRecentJobs(settings.ai.model ? 5 : 10);
+
+      // PhD discovery is independent: a failure or a disabled PhD source must not undo the
+      // job run.
+      try {
+        const phd = await runPhdDiscovery({ trigger: 'scheduled' });
+        logger.info({ runId: phd.runId, created: phd.created }, 'Scheduled PhD discovery completed');
+      } catch (error) {
+        logger.debug(
+          { error: error instanceof Error ? error.message : 'unknown' },
+          'Scheduled PhD discovery skipped',
+        );
+      }
     } finally {
       await releaseSchedulerLock(OWNER);
     }

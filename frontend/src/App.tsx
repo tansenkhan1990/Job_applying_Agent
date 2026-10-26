@@ -3,6 +3,8 @@ import { Layout } from './components/Layout';
 import { OverviewPage } from './pages/OverviewPage';
 import { JobsPage } from './pages/JobsPage';
 import { JobDetailPage } from './pages/JobDetailPage';
+import { PhdPage } from './pages/PhdPage';
+import { PhdDetailPage } from './pages/PhdDetailPage';
 import { ProfilesPage } from './pages/ProfilesPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { ApplicationsPage } from './pages/ApplicationsPage';
@@ -18,6 +20,8 @@ export default function App() {
         <Route index element={<OverviewPage />} />
         <Route path="jobs" element={<JobsPage />} />
         <Route path="jobs/:id" element={<JobDetailPage />} />
+        <Route path="phd" element={<PhdPage />} />
+        <Route path="phd/:id" element={<PhdDetailPage />} />
         <Route path="profiles" element={<ProfilesPage />} />
         <Route path="documents" element={<DocumentsPage />} />
         <Route path="queue" element={<ApplicationQueuePage />} />

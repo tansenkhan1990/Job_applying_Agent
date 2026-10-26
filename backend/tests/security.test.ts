@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { createApp } from '../src/app.js';
+import { env } from '../src/config/env.js';
 import { normalizeListing } from '../src/services/jobs/normalize.js';
 import { applyDeterministicFilters } from '../src/services/jobs/filters.js';
 import { assertNavigableApplicationUrl, isSafeRemoteUrl } from '../src/utils/urlSafety.js';
 import { verifyJobAvailability } from '../src/services/jobs/verify.js';
 import { JobModel } from '../src/models/Job.js';
 import type { JobSearchCriteria } from '../src/services/jobs/types.js';
+
+const app = createApp();
 
 const criteria: JobSearchCriteria = {
   countries: ['Germany'],
@@ -20,7 +25,7 @@ const criteria: JobSearchCriteria = {
   excludeUnpaid: true,
   excludeGermanRequired: true,
   freshnessDays: 365,
-  minAgeMonths: 3,
+  maxAgeMonths: 3,
   maxJobs: 20,
 };
 
@@ -39,7 +44,7 @@ function listing(overrides: Record<string, unknown> = {}) {
     salary: '',
     tags: [],
     description: 'English is our working language. Build TypeScript services.',
-    postedAt: new Date(Date.now() - 200 * 86_400_000),
+    postedAt: new Date(Date.now() - 20 * 86_400_000),
     expiresAt: null,
     ...overrides,
   });
@@ -96,6 +101,24 @@ describe('application URL safety', () => {
     const availability = await verifyJobAvailability(String(job._id));
     expect(availability.status).toBe('unknown');
     expect(availability.evidence).toMatch(/not a public http/i);
+  });
+});
+
+describe('credential exposure', () => {
+  it('never returns the OpenRouter key from AI status or settings', async () => {
+    env.OPENROUTER_API_KEY = 'sk-or-v1-secret-value';
+    env.aiConfigured = true;
+    try {
+      const status = await request(app).get('/api/ai/status').expect(200);
+      const settings = await request(app).get('/api/settings').expect(200);
+      expect(status.body.configured).toBe(true);
+      expect(status.body.apiKey).toBeUndefined();
+      expect(JSON.stringify(status.body)).not.toContain('sk-or-v1-secret-value');
+      expect(JSON.stringify(settings.body)).not.toContain('sk-or-v1-secret-value');
+    } finally {
+      env.OPENROUTER_API_KEY = '';
+      env.aiConfigured = false;
+    }
   });
 });
 

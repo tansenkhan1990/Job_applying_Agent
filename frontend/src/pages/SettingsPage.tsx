@@ -365,22 +365,22 @@ export function SettingsPage() {
                 />
               </Field>
               <Field
-                label="Minimum application age (calendar months)"
-                hint="Jobs younger than this are stored but marked Too Recent and kept out of the application queue. Default: 3."
+                label="Maximum posting age (calendar months)"
+                hint="Jobs this many calendar months old or older are hidden from the dashboard and kept out of the application queue. Default: 3."
               >
                 <Input
                   type="number"
-                  min={0}
-                  max={60}
-                  value={draft.search.minAgeMonths}
+                  min={1}
+                  max={24}
+                  value={draft.search.maxAgeMonths}
                   onChange={(event) =>
-                    updateSearch({ minAgeMonths: toNumber(event.target.value, 3) })
+                    updateSearch({ maxAgeMonths: toNumber(event.target.value, 3) })
                   }
                 />
               </Field>
               <Field
-                label="Retention window (days)"
-                hint="Maximum posting age kept in the database (default 365). This is not the application threshold."
+                label="Hard retention cap (days)"
+                hint="Absolute maximum posting age stored in the database (default 365). The calendar-month window above is applied first."
               >
                 <Input
                   type="number"
@@ -471,6 +471,17 @@ export function SettingsPage() {
               </Field>
             </div>
 
+            <Field
+              label="Additional job titles"
+              hint="Added to the target titles from your profiles for discovery relevance."
+            >
+              <CsvInput
+                initial={draft.search.targetTitles}
+                onChange={(targetTitles) => updateSearch({ targetTitles })}
+                placeholder="AI Engineer, LLM Engineer, Platform Engineer"
+              />
+            </Field>
+
             <div className="space-y-2 rounded-lg bg-slate-950/30 p-3">
               <Toggle
                 checked={draft.search.excludeInternships}
@@ -494,7 +505,7 @@ export function SettingsPage() {
               A vacancy is never excluded merely because it mentions German. The posting is filtered only when its
               text explicitly requires German; postings that say German is optional or not required are kept. Language
               detection is heuristic, so review the badge on each job. The application queue additionally requires a
-              verified original posting date at least three calendar months old.
+              verified original posting date less than three calendar months old.
             </WarningNote>
           </div>
         </Card>

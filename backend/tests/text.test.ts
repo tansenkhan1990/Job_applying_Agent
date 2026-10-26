@@ -27,7 +27,7 @@ const criteria: JobSearchCriteria = {
   excludeUnpaid: true,
   excludeGermanRequired: true,
   freshnessDays: 30,
-  minAgeMonths: 3,
+  maxAgeMonths: 3,
   maxJobs: 40,
 };
 
@@ -134,6 +134,96 @@ describe('job normalization', () => {
     expect(skillPresent('We use Node.js and K8s', 'Node.js')).toBe(true);
     expect(skillPresent('Experience with RAG pipelines', 'Retrieval-Augmented Generation')).toBe(true);
     expect(skillPresent('Rust and Go', 'Python')).toBe(false);
+  });
+});
+
+describe('geographic eligibility', () => {
+  it('recognises non-German cities instead of treating them as unknown', () => {
+    expect(detectCountry('Eschborn, Germany')).toBe('Germany');
+    expect(detectCountry('Berlin (HQ)')).toBe('Germany');
+    expect(detectCountry('Paris')).toBe('European Union');
+    expect(detectCountry('Amsterdam, Netherlands')).toBe('European Union');
+    expect(detectCountry('London')).toBe('Other');
+    expect(detectCountry('Zurich, Switzerland')).toBe('European Union');
+  });
+
+  it('excludes hybrid and on-site roles outside Germany', () => {
+    for (const [location, arrangement] of [
+      ['Paris', 'hybrid'],
+      ['London', 'onsite'],
+      ['Koudekerk aan den Rijn', 'onsite'],
+    ] as const) {
+      const job = listing({ location, remote: false });
+      job.workArrangement = arrangement;
+      const outcome = applyDeterministicFilters(job, criteria);
+      expect(outcome.included).toBe(false);
+      expect(outcome.reasons).toContain('location_mismatch');
+    }
+  });
+
+  it('keeps German on-site roles and unknown German locations', () => {
+    expect(applyDeterministicFilters(listing({ location: 'Berlin' }), criteria).included).toBe(true);
+    expect(applyDeterministicFilters(listing({ location: 'Eschborn' }), criteria).included).toBe(
+      true,
+    );
+  });
+
+  it('keeps generic remote labels but rejects a non-EU remote restriction', () => {
+    for (const location of ['Remote', 'Remote job', 'Homeoffice', 'Worldwide']) {
+      const job = listing({ location, remote: true, workArrangement: 'remote' });
+      const outcome = applyDeterministicFilters(job, criteria);
+      expect(outcome.included, location).toBe(true);
+    }
+    const outsideEu = listing({
+      location: 'Remote – USA only',
+      country: 'Other',
+      remote: true,
+      workArrangement: 'remote',
+    });
+    expect(applyDeterministicFilters(outsideEu, criteria).reasons).toContain('location_mismatch');
+  });
+
+  it('records explicit remote-from-Germany evidence only when stated', () => {
+    expect(
+      normalizeListing({
+        source: 'test',
+        sourceJobId: 'remote-de',
+        sourceLabel: 'Test',
+        url: 'https://example.com/remote-de',
+        employer: 'Example',
+        title: 'Backend Engineer',
+        location: 'Remote – Germany',
+        remote: true,
+        workArrangement: 'remote',
+        applicationUrl: 'https://example.com/remote-de',
+        employmentType: 'full-time',
+        salary: '',
+        tags: [],
+        description: 'Fully remote from Germany. English working language.',
+        postedAt: new Date(),
+        expiresAt: null,
+      }).remoteEligibleFromGermany,
+    ).toBe(true);
+    expect(
+      normalizeListing({
+        source: 'test',
+        sourceJobId: 'remote-world',
+        sourceLabel: 'Test',
+        url: 'https://example.com/remote-world',
+        employer: 'Example',
+        title: 'Backend Engineer',
+        location: 'Worldwide',
+        remote: true,
+        workArrangement: 'remote',
+        applicationUrl: 'https://example.com/remote-world',
+        employmentType: 'full-time',
+        salary: '',
+        tags: [],
+        description: 'English working language.',
+        postedAt: new Date(),
+        expiresAt: null,
+      }).remoteEligibleFromGermany,
+    ).toBeNull();
   });
 });
 

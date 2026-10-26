@@ -87,7 +87,6 @@ export function OverviewPage() {
           tone="success"
           hint={`${totals.eligibleNotApplied} not applied`}
         />
-        <StatCard label="Too recent" value={totals.tooRecent} tone="warning" hint="Under 3 calendar months" />
         <StatCard
           label="Date unknown"
           value={totals.unknownPostingDate}
@@ -228,8 +227,8 @@ export function OverviewPage() {
           <ul className="space-y-2 text-sm text-slate-300">
             <li>No fabricated experience, metrics or legal declarations.</li>
             <li>Jobs that require German are filtered out by default; optional or not-required German stays.</li>
-            <li>Only postings at least three calendar months old can enter the application assistant.</li>
-            <li>Unknown posting dates and too-recent jobs are stored but kept out of the queue.</li>
+            <li>Only postings less than three calendar months old are shown and can enter the application assistant.</li>
+            <li>Unknown posting dates and older postings are kept out of the queue.</li>
             <li>Only fictional mock jobs can use simulated submission.</li>
             <li>Real employers require you to complete the form and confirm manually.</li>
             <li>Duplicate applications are blocked by job and by employer/title.</li>

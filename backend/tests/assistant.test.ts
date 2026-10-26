@@ -25,7 +25,7 @@ const criteria: JobSearchCriteria = {
   excludeUnpaid: true,
   excludeGermanRequired: true,
   freshnessDays: 365,
-  minAgeMonths: 3,
+  maxAgeMonths: 3,
   maxJobs: 20,
 };
 
@@ -54,10 +54,10 @@ async function seedJobVariant(options: {
   );
 }
 
-async function prepareOldJob() {
+async function prepareRecentJob() {
   const job = await seedJobVariant({
     sourceJobId: 'mock-fullstack-senior',
-    postedAt: daysAgo(120),
+    postedAt: daysAgo(20),
   });
   const profile = await CandidateProfileModel.findOne({ kind: 'full_stack' });
   const prepared = await request(app)
@@ -69,7 +69,7 @@ async function prepareOldJob() {
 
 describe('posting-age eligibility and supervised assistant', () => {
   it('stores snapshots and exposes an eligible application in the queue', async () => {
-    const { job, applicationId } = await prepareOldJob();
+    const { job, applicationId } = await prepareRecentJob();
     const stored = await ApplicationModel.findById(applicationId);
     expect(stored?.ageEligibility).toBe('Eligible');
     expect(stored?.postedAt?.toISOString().slice(0, 10)).toBe(job.postedAt?.toISOString().slice(0, 10));
@@ -89,7 +89,7 @@ describe('posting-age eligibility and supervised assistant', () => {
   });
 
   it('filters the tracker by job title, language and posting-date range', async () => {
-    const { applicationId } = await prepareOldJob();
+    const { applicationId } = await prepareRecentJob();
     const listings = await mockAdapter.searchJobs(criteria);
     const aiSample = listings.find((item) => item.sourceJobId === 'mock-ai-engineer-rag')!;
     const olderJob = await seedJob(
@@ -126,10 +126,10 @@ describe('posting-age eligibility and supervised assistant', () => {
     expect(postedIds).not.toContain(olderId);
   });
 
-  it('keeps too-recent applications out of the queue and blocks the assistant', async () => {
+  it('keeps applications older than the posting window out of the queue and blocks the assistant', async () => {
     const job = await seedJobVariant({
       sourceJobId: 'mock-fullstack-senior',
-      postedAt: daysAgo(20),
+      postedAt: daysAgo(120),
     });
     const profile = await CandidateProfileModel.findOne({ kind: 'full_stack' });
     const prepared = await request(app)
@@ -137,7 +137,7 @@ describe('posting-age eligibility and supervised assistant', () => {
       .send({ jobId: String(job._id), profileId: String(profile?._id) });
     expect(prepared.status).toBe(201);
     const id = prepared.body.application.id;
-    expect(prepared.body.application.workflow.status).toBe('TOO_RECENT');
+    expect(prepared.body.application.workflow.status).toBe('EXPIRED');
 
     const queue = await request(app).get('/api/applications/queue?limit=50');
     expect(queue.body.items.map((item: { id: string }) => item.id)).not.toContain(id);
@@ -146,7 +146,7 @@ describe('posting-age eligibility and supervised assistant', () => {
     expect(started.status).toBe(409);
     expect(
       started.body.error.details.blockers.some(
-        (blocker: { code: string }) => blocker.code === 'AGE_TOO_RECENT',
+        (blocker: { code: string }) => blocker.code === 'AGE_EXPIRED',
       ),
     ).toBe(true);
   });
@@ -175,7 +175,7 @@ describe('posting-age eligibility and supervised assistant', () => {
   it('blocks German-mandatory jobs', async () => {
     const job = await seedJobVariant({
       sourceJobId: 'mock-backend-german',
-      postedAt: daysAgo(120),
+      postedAt: daysAgo(20),
     });
     const profile = await CandidateProfileModel.findOne({ kind: 'full_stack' });
     const prepared = await request(app)
@@ -195,7 +195,7 @@ describe('posting-age eligibility and supervised assistant', () => {
   });
 
   it('queues a session, records a filled form for review, and never marks it submitted automatically', async () => {
-    const { applicationId } = await prepareOldJob();
+    const { applicationId } = await prepareRecentJob();
 
     const started = await request(app)
       .post(`/api/applications/${applicationId}/assistant/start`)
@@ -262,7 +262,7 @@ describe('posting-age eligibility and supervised assistant', () => {
   });
 
   it('serves the selected CV and tailored cover letter only to the runner token', async () => {
-    const { applicationId } = await prepareOldJob();
+    const { applicationId } = await prepareRecentJob();
     await request(app).post(`/api/applications/${applicationId}/assistant/start`).send({});
 
     const forbidden = await request(app).get(

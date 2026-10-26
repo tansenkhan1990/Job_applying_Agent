@@ -28,32 +28,66 @@ async function getOrCreateSetting() {
   );
 }
 
+/**
+ * Older builds used `minAgeMonths` for a minimum posting age. The rule is now a maximum
+ * age (older postings are hidden), so a stored value is carried over to `maxAgeMonths`.
+ */
+function normalizeLegacyAgeSetting(raw: unknown): {
+  value: unknown;
+  hadLegacyValue: boolean;
+} {
+  if (!isPlainObject(raw) || !isPlainObject(raw.search)) {
+    return { value: raw, hadLegacyValue: false };
+  }
+  const legacy = raw.search.minAgeMonths;
+  if (typeof legacy !== 'number') return { value: raw, hadLegacyValue: false };
+
+  const search = { ...raw.search };
+  delete search.minAgeMonths;
+  if (search.maxAgeMonths === undefined) {
+    search.maxAgeMonths = Math.min(24, Math.max(1, Math.round(legacy) || 3));
+  }
+  return { value: { ...raw, search }, hadLegacyValue: true };
+}
+
 export async function getSettings(): Promise<AppSettings> {
   const doc = await getOrCreateSetting();
-  const parsed = settingsSchema.safeParse(doc?.value);
+  const normalized = normalizeLegacyAgeSetting(doc?.value);
+  const parsed = settingsSchema.safeParse(normalized.value);
   if (!parsed.success) {
     // Self-heal malformed legacy settings using defaults plus whatever is valid.
-    const fallback = deepMerge(defaultSettings(), isPlainObject(doc?.value) ? doc?.value : {});
+    const fallback = deepMerge(
+      defaultSettings(),
+      isPlainObject(normalized.value) ? normalized.value : {},
+    );
     const revalidated = settingsSchema.safeParse(fallback);
     const value = revalidated.success ? revalidated.data : defaultSettings();
     await AppSettingModel.updateOne({ key: 'global' }, { $set: { value } });
-    return migrateSettings(value);
+    return migrateSettings(value, normalized.hadLegacyValue);
   }
-  return migrateSettings(parsed.data as AppSettings);
+  return migrateSettings(parsed.data as AppSettings, normalized.hadLegacyValue);
 }
 
 /**
- * Older builds used `freshnessDays: 3` as a maximum posting age. That predates the
- * three-calendar-month application rule and would reject every eligible posting, so it is
- * migrated to the one-year retention window. Unrelated user settings are untouched.
+ * Older builds also used `freshnessDays: 3` as a maximum posting age. That predates the
+ * one-year retention window and would reject every posting, so it is reset. Unrelated user
+ * settings are untouched.
  */
-function migrateSettings(value: AppSettings): AppSettings {
-  if (value.search.freshnessDays < 30) {
-    value.search.freshnessDays = 365;
-    if (!value.search.minAgeMonths) value.search.minAgeMonths = 3;
+function migrateSettings(value: AppSettings, hadLegacyAgeValue: boolean): AppSettings {
+  if (hadLegacyAgeValue) {
     void AppSettingModel.updateOne(
       { key: 'global' },
-      { $set: { 'value.search.freshnessDays': 365, 'value.search.minAgeMonths': value.search.minAgeMonths } },
+      {
+        $set: { 'value.search.maxAgeMonths': value.search.maxAgeMonths },
+        $unset: { 'value.search.minAgeMonths': '' },
+      },
+    ).catch(() => undefined);
+  }
+  if (value.search.freshnessDays < 30) {
+    value.search.freshnessDays = 365;
+    void AppSettingModel.updateOne(
+      { key: 'global' },
+      { $set: { 'value.search.freshnessDays': 365 } },
     ).catch(() => undefined);
   }
   return value;

@@ -4,7 +4,8 @@ import { CoverLetterModel } from '../../models/CoverLetter.js';
 import { PROMPT_VERSIONS } from '../../config/defaults.js';
 import { env } from '../../config/env.js';
 import { aiConfigured, completeStructured } from '../ai/client.js';
-import { coverLetterPrompt } from '../ai/prompts.js';
+import { coverLetterDocumentPrompt, coverLetterPrompt } from '../ai/prompts.js';
+import type { DocumentEvidence } from '../ai/candidateDocuments.js';
 import { coverLetterSchema, type AiCoverLetter } from '../ai/schemas.js';
 import { getSettings, resolveModel } from '../settingsService.js';
 import { logger } from '../../utils/logger.js';
@@ -70,6 +71,7 @@ function buildTemplateLetter(input: {
   job: JobDoc;
   profile: ProfileDoc;
   matchedSkills: string[];
+  hasDescription: boolean;
 }): AiCoverLetter {
   const { job, profile } = input;
   const skills = (input.matchedSkills.length > 0 ? input.matchedSkills : profile.skills).slice(0, 6);
@@ -81,9 +83,15 @@ function buildTemplateLetter(input: {
   const paragraphs = [
     greeting,
     `I am writing to apply for the ${job.title} position at ${job.employer}. ${experience}`,
-    skills.length > 0
-      ? `The role's focus on ${skills.slice(0, 4).join(', ')} aligns with the work described in my CV. I have applied these technologies in professional projects and can speak to the concrete outcomes listed there.`
-      : `My CV describes the technologies and responsibilities I can bring to this role.`,
+    !input.hasDescription
+      ? `The posting did not include a job description, so this draft is based on the role title and my CV.${
+          skills.length > 0
+            ? ` My documented experience includes ${skills.slice(0, 4).join(', ')}.`
+            : ''
+        } I would welcome the opportunity to discuss the role and its specific requirements.`
+      : skills.length > 0
+        ? `The role's focus on ${skills.slice(0, 4).join(', ')} aligns with the work described in my CV. I have applied these technologies in professional projects and can speak to the concrete outcomes listed there.`
+        : `My CV describes the technologies and responsibilities I can bring to this role.`,
     `I would welcome the opportunity to discuss how my experience fits your team's needs. Thank you for considering my application.`,
     profile.name ? `Sincerely,\n${profile.name}` : 'Sincerely,',
   ];
@@ -103,21 +111,75 @@ export async function generateCoverLetter(input: {
   profile: ProfileDoc;
   match?: JobMatchDoc | null;
   instructions?: string;
+  /** When provided, the generator uses ranked evidence from all three CVs/letters. */
+  documentEvidence?: DocumentEvidence;
 }): Promise<GeneratedLetter> {
   const { job, profile } = input;
   const settings = await getSettings();
   const model = resolveModel(settings);
 
-  const cvDoc = profile.cvDocument
-    ? await DocumentModel.findById(profile.cvDocument).select('+text')
-    : null;
-  const coverDoc = profile.coverLetterDocument
-    ? await DocumentModel.findById(profile.coverLetterDocument).select('+text')
-    : null;
-  const cvText = cvDoc?.text ?? '';
-  const originalLetter = coverDoc?.text ?? '';
-  const matchedSkills = input.match?.matchedSkills ?? [];
-  const concerns = input.match?.concerns ?? [];
+  const cvDoc = input.documentEvidence
+    ? null
+    : profile.cvDocument
+      ? await DocumentModel.findById(profile.cvDocument).select('+text')
+      : null;
+  const coverDoc = input.documentEvidence
+    ? null
+    : profile.coverLetterDocument
+      ? await DocumentModel.findById(profile.coverLetterDocument).select('+text')
+      : null;
+  const cvText = input.documentEvidence?.selectedCvText ?? cvDoc?.text ?? '';
+  const originalLetter = input.documentEvidence?.referenceLetterText ?? coverDoc?.text ?? '';
+  const matchedSkills = input.documentEvidence
+    ? input.documentEvidence.matchedSkills
+    : input.match?.matchedSkills ?? [];
+  const descriptionMissing = !(job.description ?? '').trim();
+  const descriptionLimitation =
+    'The job description is empty or unavailable, so the letter cannot reference its specific requirements.';
+  const concerns = [
+    ...(input.match?.concerns ?? []),
+    ...(input.documentEvidence?.limitations ?? []),
+    ...(descriptionMissing ? [descriptionLimitation] : []),
+  ];
+  const groundingSources = input.documentEvidence
+    ? [...input.documentEvidence.groundingTexts, profilePayload(profile)]
+    : [cvText, originalLetter, profilePayload(profile)];
+
+  function buildPrompt(extraInstructions?: string) {
+    if (input.documentEvidence) {
+      return coverLetterDocumentPrompt({
+        target: 'job',
+        title: job.title,
+        organization: job.employer,
+        location: job.location,
+        description: truncate(job.description ?? '', 7_000),
+        context: `${job.employmentType || ''}${job.salary ? ` · ${job.salary}` : ''}`,
+        instructions: [input.instructions, extraInstructions].filter(Boolean).join(' ') || undefined,
+        evidence: {
+          selectedProfile: profilePayload(profile),
+          selectedCvText: truncate(input.documentEvidence!.selectedCvText, 6_500),
+          referenceLetterText: truncate(input.documentEvidence!.referenceLetterText, 3_000),
+          otherCvEvidence: input.documentEvidence!.otherCvEvidence,
+          otherLetterEvidence: input.documentEvidence!.otherLetterEvidence,
+          matchedSkills,
+          concerns,
+          limitations: input.documentEvidence!.limitations,
+        },
+      });
+    }
+    return coverLetterPrompt({
+      candidateProfile: profilePayload(profile),
+      cvText: truncate(cvText || 'CV text not available.', 6_000),
+      originalCoverLetter: truncate(originalLetter || 'No original cover letter provided.', 2_500),
+      jobTitle: job.title,
+      employer: job.employer,
+      location: job.location,
+      description: truncate(job.description ?? '', 5_000),
+      matchedSkills,
+      concerns,
+      instructions: [input.instructions, extraInstructions].filter(Boolean).join(' ') || undefined,
+    });
+  }
 
   let letter: AiCoverLetter;
   let source: GeneratedLetter['source'] = 'template';
@@ -130,18 +192,7 @@ export async function generateCoverLetter(input: {
 
   if (canUseAi) {
     try {
-      const prompt = coverLetterPrompt({
-        candidateProfile: profilePayload(profile),
-        cvText: truncate(cvText || 'CV text not available.', 6_000),
-        originalCoverLetter: truncate(originalLetter || 'No original cover letter provided.', 2_500),
-        jobTitle: job.title,
-        employer: job.employer,
-        location: job.location,
-        description: truncate(job.description ?? '', 5_000),
-        matchedSkills,
-        concerns,
-        instructions: input.instructions,
-      });
+      const prompt = buildPrompt();
 
       let result = await completeStructured({
         model,
@@ -156,23 +207,14 @@ export async function generateCoverLetter(input: {
       let grounding = checkGrounding({
         letterText: result.data.letterText,
         subjectLine: result.data.subjectLine,
-        sources: [cvText, originalLetter, profilePayload(profile)],
+        sources: groundingSources,
       });
 
       if (!grounding.passed && (grounding.unsupportedTerms.length > 0 || grounding.unsupportedNumbers.length > 0)) {
         const forbidden = [...grounding.unsupportedTerms, ...grounding.unsupportedNumbers];
-        const retryPrompt = coverLetterPrompt({
-          candidateProfile: profilePayload(profile),
-          cvText: truncate(cvText || 'CV text not available.', 6_000),
-          originalCoverLetter: truncate(originalLetter || 'No original cover letter provided.', 2_500),
-          jobTitle: job.title,
-          employer: job.employer,
-          location: job.location,
-          description: truncate(job.description ?? '', 5_000),
-          matchedSkills,
-          concerns,
-          instructions: `${input.instructions ?? ''} Rewrite without mentioning or implying any of: ${forbidden.join(', ')}. Only use facts from the verified material.`,
-        });
+        const retryPrompt = buildPrompt(
+          `Rewrite without mentioning or implying any of: ${forbidden.join(', ')}. Only use facts from the verified material.`,
+        );
         result = await completeStructured({
           model,
           task: 'tailored cover letter (grounding retry)',
@@ -185,7 +227,7 @@ export async function generateCoverLetter(input: {
         grounding = checkGrounding({
           letterText: result.data.letterText,
           subjectLine: result.data.subjectLine,
-          sources: [cvText, originalLetter, profilePayload(profile)],
+          sources: groundingSources,
         });
       }
 
@@ -201,10 +243,13 @@ export async function generateCoverLetter(input: {
         title: job.title,
         name: profile.name,
       });
+      if (descriptionMissing) {
+        uncertainties = [...uncertainties, descriptionLimitation];
+      }
       const finalGrounding = checkGrounding({
         letterText,
         subjectLine: letter.subjectLine,
-        sources: [cvText, originalLetter, profilePayload(profile)],
+        sources: groundingSources,
       });
 
       return {
@@ -215,7 +260,9 @@ export async function generateCoverLetter(input: {
         promptVersion,
         grounding: finalGrounding,
         claimsUsed,
-        uncertainties,
+        uncertainties: uncertainties.filter(
+          (entry, index, all) => all.indexOf(entry) === index,
+        ),
       };
     } catch (error) {
       logger.warn(
@@ -228,12 +275,17 @@ export async function generateCoverLetter(input: {
     }
   }
 
-  const template = buildTemplateLetter({ job, profile, matchedSkills });
+  const template = buildTemplateLetter({
+    job,
+    profile,
+    matchedSkills,
+    hasDescription: !descriptionMissing,
+  });
   const letterText = sanitizeLetter(template.letterText);
   const grounding = checkGrounding({
     letterText,
     subjectLine: template.subjectLine,
-    sources: [cvText, originalLetter, profilePayload(profile)],
+    sources: groundingSources,
   });
 
   return {
@@ -244,34 +296,57 @@ export async function generateCoverLetter(input: {
     promptVersion,
     grounding,
     claimsUsed: template.claimsUsed,
-    uncertainties:
-      uncertainties.length > 0
+    uncertainties: [
+      ...(uncertainties.length > 0
         ? uncertainties
-        : ['No AI model configured. This is a deterministic template; personalise it before approving.'],
+        : ['No AI model configured. This is a deterministic template; personalise it before approving.']),
+      ...(descriptionMissing ? [descriptionLimitation] : []),
+    ].filter((entry, index, all) => all.indexOf(entry) === index),
   };
 }
 
 export async function saveCoverLetterVersion(input: {
-  job: JobDoc;
+  job?: JobDoc | null;
+  phdPositionId?: string | null;
+  letterType?: 'job' | 'phd';
   profile: ProfileDoc;
   applicationId?: string;
   letter: GeneratedLetter;
   version: number;
+  referenceLetterDocumentId?: string | null;
+  referenceProfileId?: string | null;
+  jobContentHash?: string;
+  selectionRationale?: string;
+  sourceDocuments?: Array<{
+    document: string;
+    profileKind: string;
+    docType: string;
+    role: string;
+  }>;
 }) {
   return CoverLetterModel.create({
-    job: input.job._id,
+    job: input.job?._id ?? null,
+    phdPosition: input.phdPositionId ?? null,
+    letterType: input.letterType ?? 'job',
     profile: input.profile._id,
     application: input.applicationId ?? null,
     version: input.version,
     subjectLine: input.letter.subjectLine,
     letterText: input.letter.letterText,
+    generatedText: input.letter.letterText,
     contentHash: sha256(input.letter.letterText),
     source: input.letter.source,
     model: input.letter.model,
     promptVersion: input.letter.promptVersion,
     grounding: input.letter.grounding,
-    coverLetterDocument: input.profile.coverLetterDocument ?? null,
+    coverLetterDocument: input.referenceLetterDocumentId ?? input.profile.coverLetterDocument ?? null,
+    referenceLetterDocument: input.referenceLetterDocumentId ?? null,
+    referenceProfile: input.referenceProfileId ?? null,
     cvDocument: input.profile.cvDocument ?? null,
+    jobContentHash: input.jobContentHash ?? '',
+    jobSnapshotAt: new Date(),
+    selectionRationale: input.selectionRationale ?? '',
+    sourceDocuments: input.sourceDocuments ?? [],
     claimsUsed: input.letter.claimsUsed,
     uncertainties: input.letter.uncertainties,
     wordCount: wordCount(input.letter.letterText),

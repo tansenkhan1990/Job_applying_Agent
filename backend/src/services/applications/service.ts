@@ -16,7 +16,7 @@ import { extractScreeningQuestions, unansweredRequired } from './questions.js';
 import { resolveSubmissionAdapter } from './submission.js';
 import { applyTransition } from './stateMachine.js';
 import { verifyJobAvailability } from '../jobs/verify.js';
-import { assessJobAge } from '../jobs/age.js';
+import { assessJobAge, jobAgeCutoff } from '../jobs/age.js';
 import { AppError, conflict, notFound, badRequest } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 import { sha256 } from '../../utils/hash.js';
@@ -216,17 +216,16 @@ export async function prepareApplication(input: {
     postedLocalDate: job.postedLocalDate,
     expiresAt: job.expiresAt,
     status: job.status,
+    months: settings.search.maxAgeMonths,
   });
   const initialWorkflowStatus =
-    age.ageEligibility === 'Too Recent'
-      ? 'TOO_RECENT'
-      : age.ageEligibility === 'Unknown'
-        ? 'NEEDS_REVIEW'
-        : age.ageEligibility === 'Expired'
-          ? 'EXPIRED'
-          : job.languageDecision === 'Excluded' || job.languageDecision === 'Needs Review'
-            ? 'LANGUAGE_REVIEW'
-            : 'READY_TO_APPLY';
+    age.ageEligibility === 'Unknown'
+      ? 'NEEDS_REVIEW'
+      : age.ageEligibility === 'Expired'
+        ? 'EXPIRED'
+        : job.languageDecision === 'Excluded' || job.languageDecision === 'Needs Review'
+          ? 'LANGUAGE_REVIEW'
+          : 'READY_TO_APPLY';
   const coverLetterDocument = profile.coverLetterDocument
     ? await DocumentModel.findById(profile.coverLetterDocument)
     : null;
@@ -242,11 +241,10 @@ export async function prepareApplication(input: {
     source: job.source,
     jobLocation: job.location,
     workArrangement: job.workArrangement,
-    postedAt: job.postedAt,
-    ageEligibility: age.ageEligibility,
-    eligibleAfter: age.eligibleAfter,
-    ageReason: age.ageReason,
-    discoveredAt: job.discoveredAt,
+    postedAt: job.postedAt,      ageEligibility: age.ageEligibility,
+      eligibleAfter: age.eligibleAfter,
+      ageReason: age.ageReason,
+      discoveredAt: job.discoveredAt,
     jobDescriptionSnapshot: (job.description ?? '').slice(0, 8_000),
     languageSnapshot: {
       jobLanguage: job.jobLanguage,
@@ -852,15 +850,31 @@ export async function dashboardSummary() {
     ]);
 
   const relevant = await JobMatchModel.countDocuments({ score: { $gte: 80 } });
-  const [ageGroups, eligibleNotApplied, preparedAwaitingReview, assistantActive] = await Promise.all([
-    JobModel.aggregate([{ $group: { _id: '$ageEligibility', count: { $sum: 1 } } }]),
-    JobModel.countDocuments({ ageEligibility: 'Eligible', status: 'active' }),
-    ApplicationModel.countDocuments({
-      'workflow.status': { $in: ['READY_TO_APPLY', 'AWAITING_REVIEW', 'NEEDS_INPUT'] },
-    }),
-    ApplicationModel.countDocuments({ 'workflow.status': 'ASSISTANT_RUNNING' }),
-  ]);
-  const ageCounts = Object.fromEntries(ageGroups.map((group) => [group._id ?? 'Unknown', group.count]));
+  const settings = await getSettings();
+  const cutoff = jobAgeCutoff(settings.search.maxAgeMonths);
+  const now = new Date();
+  const eligibleFilter = {
+    postedAt: { $gt: cutoff },
+    status: 'active',
+    $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }],
+  };
+  const [eligibleByAge, tooRecent, unknownPostingDate, expiredByAge, preparedAwaitingReview, assistantActive] =
+    await Promise.all([
+      JobModel.countDocuments(eligibleFilter),
+      JobModel.countDocuments({ ageEligibility: 'Too Recent' }),
+      JobModel.countDocuments({ postedAt: null }),
+      JobModel.countDocuments({
+        $or: [
+          { postedAt: { $lte: cutoff } },
+          { expiresAt: { $lt: now } },
+          { status: { $in: ['expired', 'unavailable'] } },
+        ],
+      }),
+      ApplicationModel.countDocuments({
+        'workflow.status': { $in: ['READY_TO_APPLY', 'AWAITING_REVIEW', 'NEEDS_INPUT'] },
+      }),
+      ApplicationModel.countDocuments({ 'workflow.status': 'ASSISTANT_RUNNING' }),
+    ]);
   const recentRuns = await (await import('../../models/SearchRun.js')).SearchRunModel.find({})
     .sort({ startedAt: -1 })
     .limit(5)
@@ -880,11 +894,11 @@ export async function dashboardSummary() {
       submitted,
       failed,
       manual,
-      eligibleByAge: ageCounts.Eligible ?? 0,
-      tooRecent: ageCounts['Too Recent'] ?? 0,
-      unknownPostingDate: ageCounts.Unknown ?? 0,
-      expiredByAge: ageCounts.Expired ?? 0,
-      eligibleNotApplied,
+      eligibleByAge,
+      tooRecent,
+      unknownPostingDate,
+      expiredByAge,
+      eligibleNotApplied: eligibleByAge,
       preparedAwaitingReview,
       assistantActive,
     },

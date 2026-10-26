@@ -33,6 +33,19 @@ export function timeAgo(value?: string | Date | null): string {
   return formatDate(date);
 }
 
+export function deadlineCountdown(
+  value?: string | Date | null,
+  status?: string | null,
+): string | null {
+  if (!value || status === 'expired' || status === 'closed') return null;
+  const date = typeof value === 'string' ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return null;
+  const days = Math.ceil((date.getTime() - Date.now()) / 86_400_000);
+  if (days < 0) return 'deadline passed';
+  if (days === 0) return 'closes today';
+  return `${days} day${days === 1 ? '' : 's'} left`;
+}
+
 export function titleCase(value: string): string {
   return value
     .replace(/[_-]+/g, ' ')

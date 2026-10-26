@@ -24,6 +24,7 @@ const searchRunSchema = new Schema(
       index: true,
     },
     trigger: { type: String, enum: ['manual', 'scheduled'], default: 'manual' },
+    kind: { type: String, enum: ['jobs', 'phd'], default: 'jobs', index: true },
     criteriaSnapshot: { type: Schema.Types.Mixed, default: {} },
     sources: { type: [sourceResultSchema], default: [] },
     discovered: { type: Number, default: 0 },

@@ -25,13 +25,21 @@ export const searchCriteriaSchema = z.object({
   minRelevanceScore: z.number().min(0).max(100),
   maxJobsPerRun: z.number().int().min(1).max(200),
   freshnessDays: z.number().int().min(30).max(3650),
-  minAgeMonths: z.number().int().min(0).max(60),
+  maxAgeMonths: z.number().int().min(1).max(24),
   excludeInternships: z.boolean(),
   excludeUnpaid: z.boolean(),
   excludeGermanRequired: z.boolean(),
   excludeKeywords: z.array(z.string().min(1).max(80)).max(50),
   includeKeywords: z.array(z.string().min(1).max(80)).max(50),
+  targetTitles: z.array(z.string().min(2).max(120)).max(50),
   sources: z.record(z.string(), z.boolean()),
+});
+
+export const phdSearchCriteriaSchema = z.object({
+  countries: z.array(z.string().min(1).max(80)).max(20),
+  includeEuRemote: z.boolean(),
+  excludeGermanRequired: z.boolean(),
+  maxPositionsPerRun: z.number().int().min(1).max(200),
 });
 
 export const settingsSchema = z.object({
@@ -41,6 +49,7 @@ export const settingsSchema = z.object({
     maxOutputTokens: z.number().int().min(256).max(8000),
   }),
   search: searchCriteriaSchema,
+  phd: phdSearchCriteriaSchema,
   schedule: z.object({
     enabled: z.boolean(),
     intervalMinutes: z.number().int().min(15).max(1440),
@@ -59,6 +68,7 @@ export const settingsPatchSchema = z
   .object({
     ai: settingsSchema.shape.ai.partial().optional(),
     search: searchCriteriaSchema.partial().optional(),
+    phd: phdSearchCriteriaSchema.partial().optional(),
     schedule: settingsSchema.shape.schedule.partial().optional(),
     application: settingsSchema.shape.application.partial().optional(),
     sources: z.record(z.string(), z.object({ enabled: z.boolean() })).optional(),

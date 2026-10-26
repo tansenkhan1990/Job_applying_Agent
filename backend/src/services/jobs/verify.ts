@@ -65,7 +65,7 @@ export async function verifyJobAvailability(jobId: string): Promise<Availability
     postedAt: job.postedAt,
     expiresAt: job.expiresAt,
     status,
-    months: settings.search.minAgeMonths,
+    months: settings.search.maxAgeMonths,
     now,
   });
   update.ageEligibility = age.ageEligibility;

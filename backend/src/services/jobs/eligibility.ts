@@ -67,7 +67,7 @@ export async function evaluateJobEligibility(
     postedLocalDate: job.postedLocalDate,
     expiresAt: job.expiresAt,
     status: job.status,
-    months: settings.search.minAgeMonths,
+    months: settings.search.maxAgeMonths,
     now: checkedAt,
   });
   const blockers: EligibilityBlocker[] = [];
@@ -82,8 +82,6 @@ export async function evaluateJobEligibility(
 
   if (age.ageEligibility === 'Expired') {
     blockers.push({ code: 'AGE_EXPIRED', message: age.ageReason });
-  } else if (age.ageEligibility === 'Too Recent') {
-    blockers.push({ code: 'AGE_TOO_RECENT', message: age.ageReason });
   } else if (age.ageEligibility === 'Unknown') {
     blockers.push({ code: 'AGE_UNKNOWN', message: age.ageReason });
   }

@@ -1,16 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, errorMessage } from '../api/client';
+import { api, apiBase, errorMessage } from '../api/client';
 import type {
   CandidateProfile,
+  CoverLetterVersion,
   Job,
   JobDetailResponse,
   JobMatch,
+  LetterOptions,
   PrepareResponse,
   VerifyResponse,
 } from '../api/types';
 import { formatDate, scoreTone, statusTone, titleCase } from '../lib/format';
+import { ChatPanel } from '../components/ChatPanel';
 import { MatchCard } from '../components/MatchCard';
 import { useToast } from '../components/Toast';
 import {
@@ -19,6 +22,7 @@ import {
   Card,
   EmptyState,
   ErrorNote,
+  Input,
   LanguageDecisionBadge,
   PageHeader,
   ScoreBadge,
@@ -34,6 +38,11 @@ export function JobDetailPage() {
   const toast = useToast();
   const [profileId, setProfileId] = useState('');
   const [verification, setVerification] = useState<VerifyResponse['verification'] | null>(null);
+  const [letterProfileId, setLetterProfileId] = useState('');
+  const [letterReferenceId, setLetterReferenceId] = useState('');
+  const [letterInstructions, setLetterInstructions] = useState('');
+  const [selectedLetterId, setSelectedLetterId] = useState('');
+  const [draft, setDraft] = useState('');
 
   const detail = useQuery<JobDetailResponse>({
     queryKey: ['job', id],
@@ -44,6 +53,74 @@ export function JobDetailPage() {
   const profiles = useQuery<CandidateProfile[]>({
     queryKey: ['profiles'],
     queryFn: () => api<CandidateProfile[]>('/profiles'),
+  });
+
+  const letters = useQuery<CoverLetterVersion[]>({
+    queryKey: ['job-letters', id],
+    queryFn: () => api<CoverLetterVersion[]>(`/jobs/${id}/cover-letters`),
+    enabled: Boolean(id),
+  });
+
+  const letterOptions = useQuery<LetterOptions>({
+    queryKey: ['job-letter-options', id],
+    queryFn: () => api<LetterOptions>(`/jobs/${id}/cover-letter/options`),
+    enabled: Boolean(id),
+  });
+
+  const saveLetterPreference = useMutation({
+    mutationFn: (patch: { cvProfileId: string; referenceProfileId?: string }) =>
+      api<LetterOptions>(`/jobs/${id}/letter-preferences`, { method: 'PATCH', body: patch }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(['job-letter-options', id], result);
+      toast.success('CV and reference letter preferences saved for this job.');
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+
+  const generateLetter = useMutation({
+    mutationFn: () =>
+      api<{ letter: CoverLetterVersion }>(`/jobs/${id}/cover-letter`, {
+        method: 'POST',
+        body: {
+          profileId: letterProfileId || letterOptions.data?.selectedCvProfileId || undefined,
+          referenceProfileId:
+            letterReferenceId || letterOptions.data?.selectedReferenceProfileId || undefined,
+          instructions: letterInstructions || undefined,
+        },
+      }),
+    onSuccess: (result) => {
+      setSelectedLetterId(result.letter.id);
+      setDraft(result.letter.letterText);
+      setLetterInstructions('');
+      toast.success('Cover letter draft generated. Review it before using it.');
+      void queryClient.invalidateQueries({ queryKey: ['job-letters', id] });
+      void queryClient.invalidateQueries({ queryKey: ['job-letter-options', id] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs'] });
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+
+  const saveLetter = useMutation({
+    mutationFn: (letterId: string) =>
+      api<{ letter: CoverLetterVersion }>(`/jobs/${id}/cover-letters/${letterId}`, {
+        method: 'PATCH',
+        body: { letterText: draft },
+      }),
+    onSuccess: () => {
+      toast.success('Cover letter edits saved.');
+      void queryClient.invalidateQueries({ queryKey: ['job-letters', id] });
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+
+  const saveState = useMutation({
+    mutationFn: (patch: { saved?: boolean; reviewed?: boolean }) =>
+      api<{ job: Job }>(`/jobs/${id}/state`, { method: 'PATCH', body: patch }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['job', id] });
+      void queryClient.invalidateQueries({ queryKey: ['jobs'] });
+    },
+    onError: (error) => toast.error(errorMessage(error)),
   });
 
   const evaluate = useMutation({
@@ -102,6 +179,19 @@ export function JobDetailPage() {
     onError: (error) => toast.error(errorMessage(error)),
   });
 
+  const letterVersions = letters.data ?? [];
+  const activeLetter =
+    letterVersions.find((letter) => letter.id === selectedLetterId) ?? letterVersions[0] ?? null;
+
+  useEffect(() => {
+    const latest = letters.data?.[0];
+    if (!latest) return;
+    if (!selectedLetterId || !letters.data?.some((letter) => letter.id === selectedLetterId)) {
+      setSelectedLetterId(latest.id);
+      setDraft(latest.letterText);
+    }
+  }, [letters.data, selectedLetterId]);
+
   if (detail.isLoading) return <SpinnerPanel label="Loading vacancy…" />;
   if (detail.error) {
     return (
@@ -133,6 +223,30 @@ export function JobDetailPage() {
     approvedProfiles[0]?.id ||
     '';
 
+  const letterProfiles = profiles.data ?? [];
+  const optionProfiles = letterOptions.data?.profiles ?? [];
+  const effectiveLetterProfileId =
+    (letterProfileId && optionProfiles.some((item) => item.profileId === letterProfileId)
+      ? letterProfileId
+      : '') ||
+    letterOptions.data?.selectedCvProfileId ||
+    topProfileId ||
+    '';
+  const effectiveReferenceId =
+    (letterReferenceId && optionProfiles.some((item) => item.profileId === letterReferenceId)
+      ? letterReferenceId
+      : '') ||
+    letterOptions.data?.selectedReferenceProfileId ||
+    '';
+  const selectedCvOption = optionProfiles.find((item) => item.profileId === effectiveLetterProfileId);
+  const selectedReferenceOption = optionProfiles.find((item) => item.profileId === effectiveReferenceId);
+  const effectiveLetterProfile = letterProfiles.find(
+    (profile) => profile.id === effectiveLetterProfileId,
+  );
+  const canGenerateLetter = optionProfiles.length
+    ? Boolean(selectedCvOption?.cvReady)
+    : Boolean(effectiveLetterProfile?.cvDocumentInfo);
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -158,6 +272,13 @@ export function JobDetailPage() {
             <Link to="/jobs">
               <Button variant="ghost">← Jobs</Button>
             </Link>
+            <Button
+              variant="ghost"
+              onClick={() => saveState.mutate({ saved: !job.saved })}
+              loading={saveState.isPending}
+            >
+              {job.saved ? 'Saved ★' : 'Save job'}
+            </Button>
             <Button variant="secondary" onClick={() => verify.mutate()} loading={verify.isPending}>
               Verify availability
             </Button>
@@ -210,6 +331,255 @@ export function JobDetailPage() {
             ) : null}
           </Card>
 
+          <Card
+            title="Cover letter"
+            subtitle="Tailored to this vacancy and saved with version history. Generating a letter never creates or submits an application."
+          >
+            {letterProfiles.length === 0 && optionProfiles.length === 0 ? (
+              <EmptyState
+                title="No candidate profiles"
+                description="Map a CV to a profile before generating a cover letter."
+                action={
+                  <Link to="/profiles">
+                    <Button size="sm" variant="primary">
+                      Go to profiles
+                    </Button>
+                  </Link>
+                }
+              />
+            ) : (
+              <div className="space-y-3">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="text-xs text-slate-300">
+                    CV to send
+                    <Select
+                      className="mt-1"
+                      value={effectiveLetterProfileId}
+                      onChange={(event) => {
+                        setLetterProfileId(event.target.value);
+                        saveLetterPreference.mutate({
+                          cvProfileId: event.target.value,
+                          referenceProfileId: effectiveReferenceId || undefined,
+                        });
+                      }}
+                    >
+                      {optionProfiles.length === 0
+                        ? letterProfiles.map((profile) => (
+                            <option key={profile.id} value={profile.id}>
+                              {profile.label}
+                              {profile.cvDocumentInfo ? ` — ${profile.cvDocumentInfo.filename}` : ' (no CV mapped)'}
+                            </option>
+                          ))
+                        : optionProfiles.map((option) => (
+                            <option
+                              key={option.profileId}
+                              value={option.profileId}
+                              disabled={!option.cvReady}
+                            >
+                              {option.label}
+                              {option.recommended ? ' ★ recommended' : ''}
+                              {option.cvReady ? ` — ${option.cvFilename}` : ' (CV text unavailable)'}
+                            </option>
+                          ))}
+                    </Select>
+                  </label>
+                  <label className="text-xs text-slate-300">
+                    Reference cover letter
+                    <Select
+                      className="mt-1"
+                      value={effectiveReferenceId}
+                      onChange={(event) => {
+                        setLetterReferenceId(event.target.value);
+                        saveLetterPreference.mutate({
+                          cvProfileId: effectiveLetterProfileId,
+                          referenceProfileId: event.target.value || undefined,
+                        });
+                      }}
+                    >
+                      {effectiveReferenceId ? null : <option value="">No readable reference letter</option>}
+                      {optionProfiles.map((option) => (
+                        <option
+                          key={option.profileId}
+                          value={option.profileId}
+                          disabled={!option.referenceReady}
+                        >
+                          {option.label}
+                          {option.referenceRecommended ? ' ★ recommended' : ''}
+                          {option.referenceReady ? ` — ${option.referenceFilename}` : ' (letter text unavailable)'}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                </div>
+
+                <div className="space-y-1 rounded-md border border-slate-800 bg-slate-950/40 px-2.5 py-2 text-[11px] leading-relaxed text-slate-400">
+                  <p>
+                    <span className="text-slate-300">CV used:</span>{' '}
+                    {selectedCvOption
+                      ? `${selectedCvOption.label} — ${selectedCvOption.cvFilename || 'no file mapped'}`
+                      : effectiveLetterProfile?.cvDocumentInfo?.filename || 'none available'}
+                  </p>
+                  <p>
+                    <span className="text-slate-300">Writing reference:</span>{' '}
+                    {selectedReferenceOption
+                      ? `${selectedReferenceOption.label} — ${
+                          selectedReferenceOption.referenceFilename || 'no file mapped'
+                        }`
+                      : 'none selected'}
+                  </p>
+                  {letterOptions.data?.selectionRationale ? (
+                    <p>
+                      <span className="text-slate-300">Why this selection:</span>{' '}
+                      {letterOptions.data.selectionRationale}
+                    </p>
+                  ) : null}
+                  {letterOptions.data?.limitations?.length ? (
+                    <ul className="list-disc space-y-0.5 pl-4 text-amber-200/80">
+                      {letterOptions.data.limitations.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+
+                {letterOptions.data?.jobChangedSinceLetter ? (
+                  <WarningNote>
+                    This vacancy's description changed after the last saved letter, so the existing draft may
+                    need updating. Regenerate to base it on the current text.
+                  </WarningNote>
+                ) : null}
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <Button
+                    variant="primary"
+                    disabled={!effectiveLetterProfileId || !canGenerateLetter}
+                    loading={generateLetter.isPending}
+                    onClick={() => generateLetter.mutate()}
+                  >
+                    {activeLetter ? 'Regenerate letter' : 'Generate cover letter'}
+                  </Button>
+                </div>
+                {!canGenerateLetter ? (
+                  <p className="text-[11px] text-amber-300">
+                    The selected profile has no readable CV text. Map and process a CV on the Profiles page
+                    before generating a grounded letter.
+                  </p>
+                ) : null}
+
+                <label className="block text-xs text-slate-400">
+                  Optional instructions for this version
+                  <Input
+                    className="mt-1"
+                    placeholder="e.g. emphasise RAG experience, keep it under 250 words"
+                    value={letterInstructions}
+                    onChange={(event) => setLetterInstructions(event.target.value)}
+                  />
+                </label>
+
+                {letters.isLoading ? <SpinnerPanel label="Loading saved letters…" /> : null}
+
+                {activeLetter ? (
+                  <div className="space-y-2.5">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+                      <Badge tone={activeLetter.source === 'template' ? 'warning' : 'info'}>
+                        {activeLetter.source === 'template' ? 'Template fallback' : titleCase(activeLetter.source)}
+                      </Badge>
+                      <span>v{activeLetter.version}</span>
+                      <span>{activeLetter.wordCount} words</span>
+                      <span>{activeLetter.model}</span>
+                      {activeLetter.editedByUser ? <Badge tone="neutral">Edited</Badge> : null}
+                      {letterVersions.length > 1 ? (
+                        <select
+                          className="ml-auto rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200"
+                          value={activeLetter.id}
+                          onChange={(event) => {
+                            const letter = letterVersions.find((item) => item.id === event.target.value);
+                            setSelectedLetterId(event.target.value);
+                            setDraft(letter?.letterText ?? '');
+                          }}
+                          aria-label="Cover letter version"
+                        >
+                          {letterVersions.map((letter) => (
+                            <option key={letter.id} value={letter.id}>
+                              v{letter.version} · {new Date(letter.createdAt).toLocaleDateString()}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                    </div>
+
+                    {!activeLetter.grounding.passed ? (
+                      <WarningNote>
+                        This draft has grounding warnings. Verify every claim against your CV before using it.
+                      </WarningNote>
+                    ) : null}
+
+                    <textarea
+                      className="min-h-[22rem] w-full rounded-lg border border-slate-700 bg-slate-950/70 p-3 font-mono text-xs leading-relaxed text-slate-200 focus:border-indigo-500 focus:outline-none"
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      aria-label="Editable cover letter"
+                    />
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={() => saveLetter.mutate(activeLetter.id)}
+                        loading={saveLetter.isPending}
+                        disabled={draft.trim().length < 50 || draft === activeLetter.letterText}
+                      >
+                        Save edits
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          void navigator.clipboard
+                            .writeText(draft)
+                            .then(() => toast.success('Letter copied to clipboard.'))
+                            .catch(() => toast.error('Could not copy to clipboard.'));
+                        }}
+                      >
+                        Copy
+                      </Button>
+                      <a
+                        href={`${apiBase()}/jobs/${id}/cover-letters/${activeLetter.id}/download?format=pdf`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                      >
+                        <Button size="sm" variant="secondary">
+                          PDF
+                        </Button>
+                      </a>
+                      <a
+                        href={`${apiBase()}/jobs/${id}/cover-letters/${activeLetter.id}/download?format=docx`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                      >
+                        <Button size="sm" variant="secondary">
+                          DOCX
+                        </Button>
+                      </a>
+                    </div>
+
+                    {activeLetter.uncertainties?.length ? (
+                      <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-amber-200/90">
+                        {activeLetter.uncertainties.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    No cover letter exists for this vacancy yet. Generate a draft, then edit it here.
+                  </p>
+                )}
+              </div>
+            )}
+          </Card>
+
           <Card title="Prepare an application" subtitle="You can prepare with any approved profile">
             {approvedProfiles.length === 0 ? (
               <EmptyState
@@ -258,7 +628,7 @@ export function JobDetailPage() {
             {job.ageEligibility !== 'Eligible' ? (
               <WarningNote>
                 Posting-age check: <strong>{job.ageEligibility}</strong>. {job.ageReason} The application
-                assistant cannot start until the original posting date confirms at least three calendar months.
+                assistant only accepts postings that are less than three calendar months old.
               </WarningNote>
             ) : null}
             {job.languageDecision === 'Excluded' ? (
@@ -280,6 +650,26 @@ export function JobDetailPage() {
         </div>
 
         <div className="space-y-4">
+          <ChatPanel
+            targetPath={`/jobs/${id}`}
+            title="Ask about this job"
+            suggestions={[
+              'Why am I a good match for this job?',
+              'Which required skills are missing from my CV?',
+              'Which of my CVs is the best fit?',
+              'What should I emphasise in my application?',
+              'What are the most important responsibilities?',
+            ]}
+            onUseReply={
+              activeLetter
+                ? (reply) => {
+                    setDraft(reply);
+                    toast.info('Suggestion placed in the letter editor. Save edits to keep it.');
+                  }
+                : undefined
+            }
+          />
+
           <Card title="At a glance">
             <dl className="space-y-2.5 text-sm">
               <div className="flex justify-between gap-3">
@@ -348,7 +738,7 @@ export function JobDetailPage() {
                   {job.ageEligibility}
                 </Badge>
                 <Badge tone="neutral">
-                  {job.eligibleAfter ? `Eligible from ${formatDate(job.eligibleAfter)}` : 'No eligible date'}
+                  {job.eligibleAfter ? `Posted after ${formatDate(job.eligibleAfter)}` : 'No posting window'}
                 </Badge>
               </div>
               <p className="leading-relaxed text-slate-300">{job.ageReason}</p>

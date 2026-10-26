@@ -66,6 +66,22 @@ export function MatchCard({
         <ScoreBar score={match.score} />
         <p className="text-sm leading-relaxed text-slate-300">{match.explanation}</p>
 
+        {match.scoreCategories && match.scoreCategories.length > 0 ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {match.scoreCategories.map((category) => (
+              <div key={category.key} className="rounded-md bg-slate-950/40 px-2.5 py-1.5">
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="text-slate-300">
+                    {category.label} <span className="text-slate-500">· weight {category.weight}</span>
+                  </span>
+                  <span className="font-medium text-slate-200">{Math.round(category.score * 100)}%</span>
+                </div>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">{category.detail}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         {!compact ? (
           <>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -152,7 +168,8 @@ export function MatchCard({
             ) : null}
 
             <p className="text-[11px] text-slate-500">
-              Model: {match.model} · prompt {match.promptVersion} · evaluated{' '}
+              Scores are weighted estimates from the available listing, not shortlist probabilities. Model:{' '}
+              {match.model} · prompt {match.promptVersion} · evaluated{' '}
               {new Date(match.evaluatedAt).toLocaleString()}
             </p>
           </>
