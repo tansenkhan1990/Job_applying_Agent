@@ -1,4 +1,5 @@
 import { SearchRunModel } from '../../models/SearchRun.js';
+import { JobModel } from '../../models/Job.js';
 import { CandidateProfileModel } from '../../models/CandidateProfile.js';
 import { getSettings } from '../settingsService.js';
 import { logger } from '../../utils/logger.js';
@@ -8,6 +9,73 @@ import { adapters, getAdapter } from './adapters/index.js';
 import { applyDeterministicFilters } from './filters.js';
 import { upsertJobListings } from './dedupe.js';
 import { criteriaFromSettings, type JobListing, type JobSearchCriteria } from './types.js';
+
+type StoredJob = InstanceType<typeof JobModel>;
+
+function storedJobToListing(job: StoredJob): JobListing {
+  return {
+    source: job.source,
+    sourceJobId: job.sourceJobId,
+    sourceLabel: job.sourceLabel ?? '',
+    url: job.url,
+    canonicalUrl: job.canonicalUrl,
+    applicationUrl: job.applicationUrl ?? '',
+    employer: job.employer,
+    title: job.title,
+    location: job.location ?? '',
+    country: job.country ?? '',
+    remote: job.remote ?? false,
+    workArrangement: job.workArrangement ?? 'unknown',
+    employmentType: job.employmentType ?? '',
+    salary: job.salary ?? '',
+    tags: job.tags ?? [],
+    description: job.description ?? '',
+    postedAt: job.postedAt ?? null,
+    postedLocalDate: job.postedLocalDate ?? '',
+    expiresAt: job.expiresAt ?? null,
+    ageEligibility: job.ageEligibility ?? 'Unknown',
+    eligibleAfter: job.eligibleAfter ?? null,
+    ageCheckAt: job.ageCheckAt ?? new Date(),
+    ageReason: job.ageReason ?? '',
+    languageRequirement: job.languageRequirement ?? 'unknown',
+    jobLanguage: job.jobLanguage ?? 'Unknown',
+    englishRequired: job.englishRequired ?? null,
+    germanRequired: job.germanRequired ?? null,
+    germanOptional: job.germanOptional ?? null,
+    languageEvidence: job.languageEvidence ?? '',
+    languageConfidence: job.languageConfidence ?? 0,
+    languageDecision: job.languageDecision ?? 'Needs Review',
+    languageReason: job.languageReason ?? '',
+    seniority: job.seniority ?? 'unknown',
+    remoteEligibleFromGermany: job.remoteEligibleFromGermany ?? null,
+  };
+}
+
+/**
+ * Stored vacancies can outlive the rule that admitted them, for example when geography or
+ * availability rules are tightened. Re-check the active rows against the current criteria and
+ * mark the ones that no longer qualify, so the normal list cannot keep showing an ineligible
+ * vacancy. Preference-based reasons (title, keywords, internships) are ignored here: they are
+ * applied at read time, while this sweep only enforces listing facts.
+ */
+export async function deactivateIneligibleStoredJobs(
+  criteria: JobSearchCriteria,
+): Promise<number> {
+  const jobs = await JobModel.find({ status: 'active' });
+  let deactivated = 0;
+  for (const job of jobs) {
+    const outcome = applyDeterministicFilters(storedJobToListing(job), criteria);
+    const fatal = outcome.reasons.filter(
+      (reason) => reason === 'location_mismatch' || reason === 'expired',
+    );
+    if (fatal.length === 0) continue;
+    job.status = 'unavailable';
+    job.statusNote = `No longer eligible under the current rules (${fatal.join(', ')}).`;
+    await job.save();
+    deactivated += 1;
+  }
+  return deactivated;
+}
 
 export interface DiscoveryOverrides {
   sources?: string[];
@@ -190,6 +258,19 @@ export async function runDiscovery(options: {
   const status: 'completed' | 'failed' = successes > 0 ? 'completed' : 'failed';
   const errors = sourceResults.filter((item) => item.error).map((item) => `${item.source}: ${item.error}`);
 
+  // Keep previously stored rows consistent with the rules in force now.
+  let deactivated = 0;
+  try {
+    deactivated = await deactivateIneligibleStoredJobs(
+      criteriaFromSettings(settings.search, { targetTitles }),
+    );
+  } catch (error) {
+    logger.warn(
+      { error: error instanceof Error ? error.message : 'unknown' },
+      'Stored job revalidation failed',
+    );
+  }
+
   await SearchRunModel.updateOne(
     { _id: run._id },
     {
@@ -216,6 +297,7 @@ export async function runDiscovery(options: {
       created: totalCreated,
       updated: totalUpdated,
       filtered: totalFiltered,
+      deactivated,
       durationMs: Date.now() - started,
     },
     'Job discovery finished',

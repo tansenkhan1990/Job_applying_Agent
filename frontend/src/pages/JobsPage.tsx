@@ -130,6 +130,7 @@ export function JobsPage() {
   if (range.min) params.set('minScore', range.min);
   if (range.max) params.set('maxScore', range.max);
   if (filters.languageFilter === 'non_required') params.set('excludeGermanRequired', 'true');
+  else if (filters.languageFilter === 'all') params.set('excludeGermanRequired', 'false');
   else if (filters.languageFilter === 'eligible') params.set('languageDecision', 'Eligible');
   else if (filters.languageFilter === 'optional') params.set('germanOptional', 'true');
   else if (filters.languageFilter === 'review') params.set('languageDecision', 'Needs Review');

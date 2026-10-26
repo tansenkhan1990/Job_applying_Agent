@@ -7,6 +7,7 @@ import { skillPresent } from '../matching/scoring.js';
 import {
   assessPhdDeadline,
   classifyPhdResearchArea,
+  detectRollingAdmissions,
   isDateOnlyDeadline,
 } from './metadata.js';
 import type { PhdListing } from './types.js';
@@ -182,11 +183,13 @@ export function normalizePhdListing(raw: RawPhdListing): PhdListing | null {
   const deadline = toDate(raw.applicationDeadline);
   const deadlineTimezone = normalizeWhitespace(raw.deadlineTimezone ?? '');
   const deadlineHasTime = Boolean(raw.applicationDeadline) && !isDateOnlyDeadline(raw.applicationDeadline);
+  const rollingAdmissions = detectRollingAdmissions(combinedText);
   const deadlineAssessment = assessPhdDeadline({
     deadline,
     timezone: deadlineTimezone,
     hasTime: deadlineHasTime,
     closed: raw.closed,
+    rolling: rollingAdmissions,
   });
   const status =
     deadlineAssessment.status === 'closed'
@@ -247,6 +250,7 @@ export function normalizePhdListing(raw: RawPhdListing): PhdListing | null {
     applicationDeadline: deadline,
     deadlineTimezone,
     deadlineHasTime,
+    rollingAdmissions,
     deadlineStatus: deadlineAssessment.status,
     deadlineNote: deadlineAssessment.note,
     expectedStartDate: normalizeWhitespace(raw.expectedStartDate ?? ''),

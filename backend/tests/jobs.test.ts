@@ -5,13 +5,13 @@ import { JobModel } from '../src/models/Job.js';
 import { SearchRunModel } from '../src/models/SearchRun.js';
 import { mockAdapter } from '../src/services/jobs/adapters/mock.js';
 import { applyDeterministicFilters } from '../src/services/jobs/filters.js';
-import { runDiscovery } from '../src/services/jobs/discovery.js';
+import { deactivateIneligibleStoredJobs, runDiscovery } from '../src/services/jobs/discovery.js';
 import { upsertJobListings } from '../src/services/jobs/dedupe.js';
 import { getSettings } from '../src/services/settingsService.js';
 import { defaultSettings } from '../src/config/defaults.js';
 import { AppSettingModel } from '../src/models/AppSetting.js';
 import { seedApprovedProfiles } from './helpers.js';
-import type { JobSearchCriteria } from '../src/services/jobs/types.js';
+import { criteriaFromSettings, type JobSearchCriteria } from '../src/services/jobs/types.js';
 
 const baseCriteria: JobSearchCriteria = {
   countries: ['Germany'],
@@ -37,6 +37,21 @@ describe('mock job source', () => {
     expect(listings).toHaveLength(8);
     expect(listings.every((listing) => listing.source === 'mock')).toBe(true);
     expect(listings.every((listing) => listing.employer.includes('fictional'))).toBe(true);
+  });
+
+  it('rejects remote listings that are explicitly restricted to another region', async () => {
+    const [listing] = await mockAdapter.searchJobs(baseCriteria);
+    const restricted = {
+      ...listing,
+      location: 'Europe, USA, Canada, APAC',
+      country: 'Other',
+      remote: true,
+      workArrangement: 'remote' as const,
+      remoteEligibleFromGermany: false,
+    };
+    expect(applyDeterministicFilters(restricted, baseCriteria).reasons).toContain(
+      'location_mismatch',
+    );
   });
 
   it('filters test cases deterministically', async () => {
@@ -173,7 +188,7 @@ describe('job upsert and deduplication', () => {
 });
 
 describe('jobs API language filter', () => {
-  it('hides German-mandatory listings when requested and returns all jobs otherwise', async () => {
+  it('hides German-mandatory listings by default and only includes them when requested', async () => {
     const listings = await mockAdapter.searchJobs(baseCriteria);
     const german = listings.find((listing) => listing.sourceJobId === 'mock-backend-german')!;
     const english = listings.find((listing) => listing.sourceJobId === 'mock-fullstack-senior')!;
@@ -187,11 +202,47 @@ describe('jobs API language filter', () => {
     expect(filtered.body.items).toHaveLength(1);
     expect(filtered.body.items[0].title).toBe('Senior Full Stack Engineer');
 
-    const all = await request(app).get('/api/jobs?limit=50&status=active');
+    // The configured default applies server-side, so a plain list request cannot reveal a
+    // German-mandatory vacancy.
+    const defaultList = await request(app).get('/api/jobs?limit=50&status=active');
+    expect(defaultList.status).toBe(200);
+    expect(defaultList.body.items.map((item: { title: string }) => item.title)).toEqual([
+      'Senior Full Stack Engineer',
+    ]);
+
+    const all = await request(app).get(
+      '/api/jobs?limit=50&status=active&excludeGermanRequired=false',
+    );
     expect(all.status).toBe(200);
     expect(all.body.items.map((item: { title: string }) => item.title)).toContain(
       'Senior Backend Engineer',
     );
+  });
+});
+
+describe('stored listing revalidation', () => {
+  it('deactivates stored vacancies that no longer satisfy the geography rule', async () => {
+    const [listing] = await mockAdapter.searchJobs(baseCriteria);
+    await upsertJobListings([listing]);
+    // Simulate a row stored before the current geography rule was enforced.
+    await JobModel.updateOne(
+      { sourceJobId: listing.sourceJobId },
+      { $set: { country: '', location: 'London', workArrangement: 'hybrid', remote: false } },
+    );
+
+    const settings = await getSettings();
+    const deactivated = await deactivateIneligibleStoredJobs(
+      criteriaFromSettings(settings.search, { targetTitles: [] }),
+    );
+    expect(deactivated).toBe(1);
+
+    const stored = await JobModel.findOne({ sourceJobId: listing.sourceJobId });
+    expect(stored?.status).toBe('unavailable');
+    expect(stored?.statusNote).toMatch(/location_mismatch/);
+
+    const app = createApp();
+    const list = await request(app).get('/api/jobs?limit=50&status=active');
+    expect(list.body.items).toHaveLength(0);
   });
 });
 

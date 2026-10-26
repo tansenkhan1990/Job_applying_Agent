@@ -104,6 +104,9 @@ export function hasNonEuRemoteRestriction(job: JobListing): boolean {
 export function isLocationAllowed(job: JobListing, criteria: JobSearchCriteria): boolean {
   if (job.workArrangement === 'remote') {
     if (hasNonEuRemoteRestriction(job)) return false;
+    // Explicit evidence that the role is restricted to another region disqualifies it even
+    // when the location label is broad enough to pass the EU-scope check.
+    if (job.remoteEligibleFromGermany === false) return false;
     if (job.country === 'Germany') return true;
     if (!isEuRemoteLocation(job.location)) return false;
     const scope = criteria.remoteScope.map(normalizeForMatch);

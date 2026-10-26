@@ -301,8 +301,13 @@ Discovery:
   separate date-verification review. PhD positions are not age-limited and stay listed
   while their deadline is verified open;
 - normalizes title, employer, location, work arrangement, language requirement, seniority;
+- applies the German-language default server-side on every list request, so a plain
+  `/api/jobs` call cannot reveal a German-mandatory vacancy; `excludeGermanRequired=false`
+  is an explicit opt-in (the UI's **All jobs** option);
 - enforces the geographic rule in the backend: hybrid/on-site roles are accepted only when
-  the location is verifiably in Germany; outside Germany only remote roles are accepted.
+  the location is verifiably in Germany; outside Germany only remote roles are accepted, and
+  a remote listing with explicit evidence of restriction to another region
+  (`remoteEligibleFromGermany: false`) is rejected.
   Recognized non-German cities (for example Paris, London, Amsterdam, Zurich, Eindhoven)
   are classified instead of being treated as “unknown”, and a generic remote label
   (`Remote`, `Remote job`, `Homeoffice`, `Worldwide`) is retained rather than rejected.
@@ -317,6 +322,9 @@ Discovery:
   Settings;
 - deduplicates by `(source, sourceJobId)`, canonical URL and a normalized
   employer/title/location fingerprint;
+- re-checks stored active rows after each run against the current geography and availability
+  rules, marking rows that no longer qualify as `unavailable` (visible only through an
+  explicit `status` filter) instead of leaving them in normal results;
 - records discovery and last-verification timestamps and per-source errors;
 - never invents listings and never bypasses CAPTCHAs or access controls.
 
@@ -362,6 +370,9 @@ stays open through the end of that day in the institution's timezone; an explici
 compared exactly. Expired and closed/filled positions are excluded from normal results.
 Positions with no stated deadline are **not** assumed open: they appear only in the separate
 **Deadline needs verification** group, with the original source link and last-verified date.
+The one exception is an advertisement that itself confirms rolling admission (for example
+“applications are reviewed on a rolling basis” or “open until filled”): such a position is
+listed as open because the source states applications are still accepted.
 
 Sources:
 
@@ -377,9 +388,11 @@ positions; per-source errors are returned and run history is stored in `SearchRu
 
 The PhD score is a transparent weighted estimate (**research topic 30%**, technical skills
 25%, research experience/publications 20%, academic qualifications 15%, methods/tools 10%),
-normalized over the categories that apply. A missing mandatory qualification (for example a
-required master's degree) caps the score and flags the position. It is explicitly labelled
-an estimated profile match, not an admission probability.
+normalized over the categories that apply. Every listed position is scored automatically with
+this deterministic model when the list or detail view is opened, so no manual evaluation step
+is needed; **Evaluate profile** re-runs it on demand. A missing mandatory qualification (for
+example a required master's degree) caps the score and flags the position. It is explicitly
+labelled an estimated profile match, not an admission probability.
 
 Each position supports **Generate PhD cover letter**: an academic English letter using the
 selected CV, evidenced publications, and the advertised topic. Drafts are editable, stored
@@ -640,7 +653,7 @@ Coverage:
 - date-review separation: unknown-date jobs are absent from normal results and returned only
   by `ageEligibility=Unknown`, while `postedWithinDays` and custom `postedAfter` ranges are
   clamped to the three-month floor
-- PhD research areas (AI, cybersecurity, software engineering, other), timezone-aware
+- PhD rolling-admission detection (source-stated only; a missing deadline stays unknown), timezone-aware
   date-only deadlines, explicit deadline times, old-but-open positions, expired and
   closed exclusions, and the unknown-deadline verification group
 - application queue and assistant preflight: age, language, availability, duplicate and

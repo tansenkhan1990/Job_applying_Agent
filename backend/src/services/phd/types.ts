@@ -39,6 +39,8 @@ export interface PhdListing {
   applicationDeadline: Date | null;
   deadlineTimezone: string;
   deadlineHasTime: boolean;
+  /** The advertisement states rolling/continuous admission, so no fixed deadline is expected. */
+  rollingAdmissions: boolean;
   deadlineStatus: 'open' | 'expired' | 'unknown' | 'closed';
   deadlineNote: string;
   expectedStartDate: string;

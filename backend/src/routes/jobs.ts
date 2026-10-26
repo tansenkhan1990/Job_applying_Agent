@@ -169,9 +169,18 @@ jobsRouter.get('/', async (req, res) => {
   const cutoff = jobAgeCutoff(maxAgeMonths);
 
   const filter: Record<string, unknown> = {};
-  if (query.status) filter.status = query.status;
+  // Expired, unavailable and duplicate rows never belong in normal results; they stay
+  // reachable only by asking for that status explicitly.
+  filter.status = query.status ?? 'active';
   if (query.source) filter.source = query.source;
-  if (query.excludeGermanRequired === 'true') {
+  // Language eligibility is a mandatory filter: unless the caller explicitly asks for
+  // excluded listings, the configured default hides mandatory-German vacancies.
+  const excludeGermanRequired =
+    query.excludeGermanRequired === 'true' ||
+    (query.excludeGermanRequired === undefined &&
+      query.languageDecision === undefined &&
+      settings.search.excludeGermanRequired);
+  if (excludeGermanRequired) {
     filter.languageDecision = { $ne: 'Excluded' };
     filter.languageRequirement = { $ne: 'german_required' };
   } else if (query.languageDecision) {

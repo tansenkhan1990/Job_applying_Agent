@@ -182,6 +182,8 @@ describe('PhD deadline assessment', () => {
     expect(explicit.status).toBe('expired');
 
     expect(assessPhdDeadline({ deadline: null }).status).toBe('unknown');
+    // Rolling admission is open only because the advertisement says so.
+    expect(assessPhdDeadline({ deadline: null, rolling: true }).status).toBe('open');
     expect(assessPhdDeadline({ deadline: new Date(Date.now() + day), closed: true }).status).toBe(
       'closed',
     );
@@ -247,6 +249,31 @@ describe('PhD deadline eligibility in the API', () => {
     expect(closedList.body.items.map((item: { id: string }) => item.id)).toEqual([
       String(closed._id),
     ]);
+  });
+
+  it('treats an advertised rolling admission without a deadline as open', async () => {
+    const rolling = await seedPhd({
+      sourceJobId: 'phd-rolling',
+      url: 'https://example.org/phd/rolling',
+      title: 'Doctoral Researcher in software engineering',
+      description:
+        'Applications are accepted on a rolling basis. English is the working language. Master degree in computer science and Python required.',
+      postedAt: new Date(Date.now() - 200 * day),
+    });
+    expect(rolling.rollingAdmissions).toBe(true);
+    expect(rolling.deadlineStatus).toBe('open');
+
+    const openList = await request(app).get('/api/phd/positions?limit=50').expect(200);
+    expect(openList.body.items.map((item: { id: string }) => item.id)).toContain(
+      String(rolling._id),
+    );
+
+    const unknownList = await request(app)
+      .get('/api/phd/positions?limit=50&deadlineStatus=unknown')
+      .expect(200);
+    expect(unknownList.body.items.map((item: { id: string }) => item.id)).not.toContain(
+      String(rolling._id),
+    );
   });
 
   it('filters by research area, institution, and deadline window', async () => {

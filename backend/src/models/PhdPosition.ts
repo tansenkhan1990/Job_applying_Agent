@@ -67,6 +67,8 @@ const phdPositionSchema = new Schema(
     // not incorrectly treated as passed.
     deadlineTimezone: { type: String, default: '' },
     deadlineHasTime: { type: Boolean, default: false },
+    // True only when the advertisement states rolling/continuous admission.
+    rollingAdmissions: { type: Boolean, default: false },
     deadlineStatus: {
       type: String,
       enum: ['open', 'expired', 'unknown', 'closed'],

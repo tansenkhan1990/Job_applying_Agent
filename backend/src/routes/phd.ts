@@ -9,7 +9,7 @@ import { serialize } from '../utils/serialize.js';
 import { notFound } from '../utils/errors.js';
 import { runPhdDiscovery } from '../services/phd/discovery.js';
 import { phdSourceStatuses } from '../services/phd/adapters/index.js';
-import { matchPhdPosition } from '../services/phd/matching.js';
+import { ensureDeterministicPhdMatches, matchPhdPosition } from '../services/phd/matching.js';
 import { assessPhdDeadline } from '../services/phd/metadata.js';
 import { startOfUtcDay } from '../services/jobs/age.js';
 import {
@@ -56,6 +56,7 @@ function buildItems(
     applicationDeadline?: Date | null;
     deadlineTimezone?: string | null;
     deadlineHasTime?: boolean | null;
+    rollingAdmissions?: boolean | null;
     status?: string | null;
   }>,
   matches: unknown[],
@@ -77,6 +78,7 @@ function buildItems(
       timezone: position.deadlineTimezone,
       hasTime: position.deadlineHasTime ?? false,
       closed: position.status === 'closed',
+      rolling: position.rollingAdmissions ?? false,
     });
     return {
       ...data,
@@ -131,12 +133,15 @@ phdRouter.get('/positions', async (req, res) => {
               { applicationDeadline: { $gte: todayStart } },
             ],
           },
+          // Rolling admission is open by the source's own statement and has no deadline.
+          { rollingAdmissions: true, applicationDeadline: null },
         ],
       },
     ];
   } else if (deadlineFilter === 'unknown') {
     if (!query.status) filter.status = 'active';
     filter.applicationDeadline = null;
+    filter.rollingAdmissions = { $ne: true };
   } else if (deadlineFilter === 'expired') {
     filter.status = 'expired';
   } else if (deadlineFilter === 'closed') {
@@ -206,6 +211,7 @@ phdRouter.get('/positions', async (req, res) => {
     );
     const total = pool.length;
     const positions = pool.slice(pagination.skip, pagination.skip + pagination.limit);
+    await ensureDeterministicPhdMatches(positions.map((position) => String(position._id)));
     const ids = new Set(positions.map((position) => String(position._id)));
     const matches = poolMatches.filter((match) => ids.has(String(match.position)));
     return res.json(paginated(buildItems(positions, matches), total, pagination));
@@ -229,6 +235,7 @@ phdRouter.get('/positions', async (req, res) => {
     PhdPositionModel.find(filter).sort(sort).skip(pagination.skip).limit(pagination.limit),
     PhdPositionModel.countDocuments(filter),
   ]);
+  await ensureDeterministicPhdMatches(positions.map((position) => String(position._id)));
   const matches = await PhdMatchModel.find({
     ...matchFilter,
     position: { $in: positions.map((position) => position._id) },
@@ -241,6 +248,7 @@ phdRouter.get('/positions/:id', async (req, res) => {
   const id = objectIdSchema.parse(req.params.id);
   const position = await PhdPositionModel.findById(id);
   if (!position) throw notFound('PhD position');
+  await ensureDeterministicPhdMatches([String(position._id)]);
   const matches = await PhdMatchModel.find({ position: position._id })
     .sort({ score: -1 })
     .populate('profile', 'label kind status name');
@@ -250,6 +258,7 @@ phdRouter.get('/positions/:id', async (req, res) => {
     timezone: position.deadlineTimezone,
     hasTime: position.deadlineHasTime,
     closed: position.status === 'closed',
+    rolling: position.rollingAdmissions ?? false,
   });
   data.deadlineStatus = deadline.status;
   data.deadlineNote = deadline.note;

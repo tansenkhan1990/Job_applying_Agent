@@ -195,6 +195,29 @@ describe('PhD matching and letters', () => {
     expect(await ApplicationModel.countDocuments()).toBe(0);
   });
 
+  it('backfills a deterministic score for every listed position without a manual step', async () => {
+    await seedApprovedProfiles();
+    await request(app).post('/api/phd/search').send({}).expect(201);
+    expect(await PhdMatchModel.countDocuments()).toBe(0);
+
+    const list = await request(app).get('/api/phd/positions?limit=50').expect(200);
+    expect(list.body.items).toHaveLength(5);
+    for (const item of list.body.items as Array<{
+      bestMatch: { score: number; explanation: string } | null;
+    }>) {
+      expect(item.bestMatch).not.toBeNull();
+      expect(item.bestMatch!.score).toBeGreaterThanOrEqual(0);
+      expect(item.bestMatch!.score).toBeLessThanOrEqual(100);
+      expect(item.bestMatch!.explanation).toMatch(/Estimated profile match/);
+    }
+
+    const detail = await request(app)
+      .get(`/api/phd/positions/${list.body.items[0].id}`)
+      .expect(200);
+    expect(detail.body.matches).toHaveLength(3);
+    expect(await PhdMatchModel.countDocuments()).toBe(15);
+  });
+
   it('scores topic evidence without inventing a probability', async () => {
     await seedApprovedProfiles();
     await request(app).post('/api/phd/search').send({}).expect(201);

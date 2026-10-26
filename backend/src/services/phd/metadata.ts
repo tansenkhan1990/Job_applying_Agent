@@ -125,6 +125,20 @@ export function classifyPhdResearchArea(text: string): {
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
+// The source must state that applications are accepted without a fixed deadline. A generic
+// "open" or "ongoing" is not enough.
+const ROLLING_PATTERNS = [
+  /\brolling (?:admissions?|review|basis|recruitment)\b/i,
+  /\bapplications? (?:are )?(?:reviewed|considered|accepted) on a rolling basis\b/i,
+  /\bopen until filled\b/i,
+  /\bapplications? (?:are )?accepted (?:continuously|at any time|year[- ]round)\b/i,
+];
+
+/** True only when the advertisement itself states rolling/continuous admission. */
+export function detectRollingAdmissions(text: string): boolean {
+  return ROLLING_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 export function isDateOnlyDeadline(value: unknown): boolean {
   return typeof value === 'string' && DATE_ONLY.test(value.trim());
 }
@@ -160,6 +174,8 @@ export function assessPhdDeadline(input: {
   /** True only when the source published a clock time, not just a calendar date. */
   hasTime?: boolean;
   closed?: boolean;
+  /** True only when the advertisement states rolling/continuous admission. */
+  rolling?: boolean;
   now?: Date;
 }): { status: PhdDeadlineStatus; note: string } {
   if (input.closed) {
@@ -169,6 +185,12 @@ export function assessPhdDeadline(input: {
     };
   }
   if (!input.deadline) {
+    if (input.rolling) {
+      return {
+        status: 'open',
+        note: 'The official advertisement states that applications are accepted on a rolling basis, so there is no fixed deadline.',
+      };
+    }
     return {
       status: 'unknown',
       note: 'The advertisement does not state a verifiable application deadline. Check the official source before treating this position as open.',
@@ -223,6 +245,7 @@ export async function backfillPhdMetadata(): Promise<number> {
     $or: [
       { researchArea: { $exists: false } },
       { deadlineStatus: { $exists: false } },
+      { rollingAdmissions: { $exists: false } },
       { deadlineHasTime: { $exists: false } },
       { lastVerifiedAt: null, lastSeenAt: { $ne: null } },
     ],
@@ -233,14 +256,19 @@ export async function backfillPhdMetadata(): Promise<number> {
     const area = classifyPhdResearchArea(
       [position.title, position.researchTopic, position.description].join('\n'),
     );
+    const rollingAdmissions =
+      position.rollingAdmissions ??
+      detectRollingAdmissions([position.title, position.description].join('\n'));
     const deadline = assessPhdDeadline({
       deadline: position.applicationDeadline,
       timezone: position.deadlineTimezone,
       hasTime: position.deadlineHasTime,
       closed: position.status === 'closed',
+      rolling: rollingAdmissions,
     });
     const update: Record<string, unknown> = {
       researchArea: area.area,
+      rollingAdmissions,
       researchAreaEvidence: area.evidence,
       deadlineStatus: deadline.status,
       deadlineNote: deadline.note,
