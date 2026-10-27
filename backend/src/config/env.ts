@@ -51,6 +51,11 @@ const envSchema = z.object({
   AI_MAX_OUTPUT_TOKENS: intFromEnv(2_000, 256, 8_000),
   AI_MAX_INPUT_CHARS: intFromEnv(24_000, 2_000, 120_000),
 
+  // Optional DuckDuckGo web-search job source. Off by default; extraction needs the AI key.
+  JOB_WEB_SEARCH_ENABLED: boolFromEnv(false),
+  JOB_WEB_SEARCH_MAX_QUERIES: intFromEnv(6, 1, 12),
+  JOB_WEB_SEARCH_MAX_PAGES: intFromEnv(12, 1, 30),
+
   // Optional permitted JSON feed of PhD positions. Empty disables the feed adapter.
   PHD_FEED_URL: z.string().default(''),
   PHD_FEED_LABEL: z.string().default('Configured PhD feed'),

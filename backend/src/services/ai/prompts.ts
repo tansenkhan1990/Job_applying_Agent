@@ -233,6 +233,40 @@ Write ${isPhd ? '280-420 words with a professional greeting and academic closing
   return { system, user };
 }
 
+/**
+ * Turns the raw text of one search result page into a single vacancy. The page is untrusted
+ * data: the guardrails apply, and the model is told to reject anything that is not one
+ * currently advertised role rather than fabricating a listing from an index page.
+ */
+export function jobPostingExtractionPrompt(input: {
+  pageUrl: string;
+  pageTitle: string;
+  pageText: string;
+  targetTitles: string[];
+}) {
+  const system = `${SYSTEM_GUARDRAILS}
+${STRUCTURED_OUTPUT_RULE}
+You read the raw text of a web page found by a search engine and extract ONE job posting from it.
+Hard rules:
+- Use only information present in the page text. Leave a field empty (or "unknown") when the page does not state it; never guess.
+- Set isJobPosting to true only when the page advertises one specific, currently open vacancy. Set it to false for job indexes, category or search-result pages, career landing pages, company "about" pages, news articles, salary guides, blog posts, recruiter marketing pages, and anything that is not one vacancy.
+- Never merge several vacancies into one. If the page lists many openings, extract the first one only when it is clearly the page's main vacancy; otherwise set isJobPosting to false.
+- Copy the job title and employer exactly as written; do not translate them.
+- description must summarise the posting's own duties, requirements and benefits in plain text, in the language of the posting, and at most 1500 characters. Do not add requirements that are not in the text.
+- Dates must be ISO 8601 (YYYY-MM-DD) or an empty string when the posting states no date.
+- confidence is your own 0-1 estimate that this page is genuinely one advertised vacancy.
+Prompt version: ${PROMPT_VERSIONS.jobExtraction}`;
+
+  const user = `SEARCH_TARGET_TITLES (context only; never invent a match): ${input.targetTitles.join(', ') || 'unspecified'}
+PAGE_URL: ${input.pageUrl}
+PAGE_TITLE: ${input.pageTitle}
+<<<PAGE_START
+${input.pageText}
+PAGE_END>>>`;
+
+  return { system, user };
+}
+
 export function chatSystemPrompt(target: 'job' | 'phd'): string {
   return `${SYSTEM_GUARDRAILS}
 You are answering the candidate's questions about ONE ${target === 'job' ? 'job vacancy' : 'PhD position'}.

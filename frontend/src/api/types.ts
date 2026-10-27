@@ -278,6 +278,8 @@ export interface Job {
   seniority: 'junior' | 'mid' | 'senior' | 'lead' | 'unknown';
   saved: boolean;
   reviewedAt: string | null;
+  /** Application tracker: when the user marked this vacancy as applied, otherwise null. */
+  appliedAt: string | null;
   remoteEligibleFromGermany: boolean | null;
   bestMatch?: JobMatch | null;
   mergedSources: string[];
@@ -535,6 +537,7 @@ export interface SearchRun {
     filtered: number;
     durationMs: number;
     error: string;
+    rejectionReasons?: Record<string, number>;
   }>;
   discovered: number;
   created: number;

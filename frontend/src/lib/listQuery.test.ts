@@ -77,12 +77,13 @@ describe('job list query builder', () => {
     expect(params.get('page')).toBe('2');
   });
 
-  it('maps match-score bands, saved, review and letter state together', () => {
+  it('maps match-score bands, saved, review, application and letter state together', () => {
     const params = buildJobListQuery(
       filters({
         scoreBand: '80-89',
         savedOnly: true,
         reviewFilter: 'unreviewed',
+        appliedFilter: 'applied',
         letterFilter: 'no',
       }),
       '',
@@ -92,9 +93,17 @@ describe('job list query builder', () => {
     expect(params.get('maxScore')).toBe('89');
     expect(params.get('saved')).toBe('true');
     expect(params.get('reviewed')).toBe('false');
+    expect(params.get('applied')).toBe('true');
     expect(params.get('hasCoverLetter')).toBe('false');
     expect(jobScoreRange('below-70')).toEqual({ max: '69' });
     expect(jobScoreRange('90-100')).toEqual({ min: '90', max: '100' });
+  });
+
+  it('sends no application filter by default and narrows on request', () => {
+    expect(buildJobListQuery(DEFAULT_JOB_FILTERS, '', 1).get('applied')).toBeNull();
+    expect(buildJobListQuery(filters({ appliedFilter: 'not_applied' }), '', 1).get('applied')).toBe(
+      'false',
+    );
   });
 
   it('maps relative and custom posting-date ranges', () => {

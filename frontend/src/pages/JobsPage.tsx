@@ -23,6 +23,7 @@ import { useToast } from '../components/Toast';
 import {
   DEFAULT_JOB_FILTERS,
   buildJobListQuery,
+  type JobAppliedFilter,
   type JobDateEvidence,
   type JobFilters,
   type JobLanguageFilter,
@@ -109,14 +110,19 @@ export function JobsPage() {
   });
 
   const setJobState = useMutation({
-    mutationFn: (input: { jobId: string; saved?: boolean; reviewed?: boolean }) =>
+    mutationFn: (input: { jobId: string; saved?: boolean; reviewed?: boolean; applied?: boolean }) =>
       api<{ job: Job }>(`/jobs/${input.jobId}/state`, {
         method: 'PATCH',
-        body: { saved: input.saved, reviewed: input.reviewed },
+        body: { saved: input.saved, reviewed: input.reviewed, applied: input.applied },
       }),
     onSuccess: (_result, input) => {
       if (input.saved !== undefined) toast.success(input.saved ? 'Job saved.' : 'Job removed from saved.');
       if (input.reviewed !== undefined) toast.success(input.reviewed ? 'Marked reviewed.' : 'Marked unreviewed.');
+      if (input.applied !== undefined) {
+        toast.success(
+          input.applied ? 'Tracked as applied. The job page shows this from now on.' : 'Removed from your applied jobs.',
+        );
+      }
       void queryClient.invalidateQueries({ queryKey: ['jobs'] });
       void queryClient.invalidateQueries({ queryKey: ['job', input.jobId] });
     },
@@ -140,6 +146,7 @@ export function JobsPage() {
     filters.seniority,
     filters.savedOnly ? 'saved' : '',
     filters.reviewFilter !== 'all' ? filters.reviewFilter : '',
+    filters.appliedFilter !== 'all' ? filters.appliedFilter : '',
     filters.letterFilter !== 'all' ? filters.letterFilter : '',
   ].filter(Boolean).length;
 
@@ -391,6 +398,18 @@ export function JobsPage() {
           </label>
 
           <label className="flex flex-col gap-1 text-[11px] text-slate-400">
+            Application
+            <Select
+              value={filters.appliedFilter}
+              onChange={(event) => patch({ appliedFilter: event.target.value as JobAppliedFilter })}
+            >
+              <option value="all">Any</option>
+              <option value="applied">Already applied</option>
+              <option value="not_applied">Not applied yet</option>
+            </Select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-[11px] text-slate-400">
             Cover letter
             <Select
               value={filters.letterFilter}
@@ -477,6 +496,9 @@ export function JobsPage() {
                     </Link>
                     {match ? <ScoreBadge score={match.score} /> : <Badge tone="neutral">Unscored</Badge>}
                     {job.saved ? <Badge tone="success">Saved</Badge> : null}
+                    {job.appliedAt ? (
+                      <Badge tone="info">Applied {formatDate(job.appliedAt)}</Badge>
+                    ) : null}
                     {job.reviewedAt ? <Badge tone="neutral">Reviewed</Badge> : null}
                     {match?.reviewRequired ? <Badge tone="warning">Review required</Badge> : null}
                   </div>
@@ -591,6 +613,13 @@ export function JobsPage() {
                     onClick={() => setJobState.mutate({ jobId: job.id, reviewed: !job.reviewedAt })}
                   >
                     {job.reviewedAt ? 'Mark unreviewed' : 'Mark reviewed'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setJobState.mutate({ jobId: job.id, applied: !job.appliedAt })}
+                  >
+                    {job.appliedAt ? 'Applied ✓' : 'Mark applied'}
                   </Button>
                   <Link to={`/jobs/${job.id}`}>
                     <Button size="sm" variant="primary" className="w-full">

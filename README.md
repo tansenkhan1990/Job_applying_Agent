@@ -16,7 +16,8 @@ and no submission state machine. You decide where to apply and send the applicat
 | Three career profiles (Full Stack, AI Engineer, DevOps/Cloud) built from your PDF/DOCX CVs | ✅ tested |
 | Professional job discovery with posting-date, geography and language enforcement | ✅ tested |
 | Transparent CV match score (35/25/15/10/10/5 weights) with matched/missing skills | ✅ tested |
-| Filters for category, date, company, arrangement, language, score, saved state | ✅ tested |
+| Filters for category, date, company, arrangement, language, score, saved and applied state | ✅ tested |
+| Application tracker: mark a vacancy as applied and it is flagged when you open it | ✅ tested |
 | Per-job AI chat with job-scoped history | ✅ tested |
 | Job cover letters: generate, edit, regenerate, version, copy, download PDF/DOCX | ✅ tested |
 | Fully funded PhD discovery in AI, cybersecurity, software engineering and data (Europe, Turkey, USA, Canada, Malaysia) | ✅ tested (simulated + configured feed) |
@@ -40,6 +41,7 @@ Laptop
 │   ├── backend (Express, TS) ......... http://127.0.0.1:3000
 │   │      ├── OpenRouter API (optional AI)
 │   │      ├── Arbeitnow / Remotive (public job APIs)
+│   │      ├── DuckDuckGo web search + AI page extraction (optional)
 │   │      ├── Configured PhD JSON feed (optional)
 │   │      └── /app/documents (read-only mount)
 │   ├── mongodb (internal network, loopback-only host port)
@@ -156,8 +158,46 @@ Scheduling stays off until enabled in **Settings**.
 | --- | --- | --- |
 | **Arbeitnow** | Public API | Live jobs, mostly Germany |
 | **Remotive** | Public API | Live remote jobs |
+| **Web search (DuckDuckGo)** | DuckDuckGo results + `OPENROUTER_API_KEY` | Vacancies on company career pages, ATS pages and smaller boards that no feed covers |
 | **Configured PhD feed** | `PHD_FEED_URL` (permitted JSON) | PhD positions with deadline fields |
 | **Simulated fixtures** | No network, opt-in | Clearly labelled fictional rows for exercising the pipeline |
+
+The workhorse sources only ever see their own inventory, which is why an install with just
+Arbeitnow and Remotive finds jobs from two websites. **Web search** closes that gap: it builds
+queries from your target titles (plus your first two `includeKeywords`) in **Settings → Search**,
+asks DuckDuckGo, fetches each public page once, and has your configured model turn the page into
+one vacancy. Pages that are indexes, career landing pages or articles are rejected, so the list
+stays vacancies only. Each row links to the original posting; nothing is republished.
+
+Two query shapes are used, because one shape cannot reach both halves of the market:
+
+- **ATS-scoped** (`"Full Stack Developer" Germany (site:jobs.lever.co OR …)`) — every URL is one
+  vacancy.
+- **Open web with aggregator indexes excluded** (`… jobs -site:stepstone.de -site:jooble.org …`)
+  — reaches company career pages; a plain `"<title> jobs <country>"` query returns almost nothing
+  but Stepstone/Jooble/Indeed/Glassdoor *search-result* pages, which are not vacancies.
+
+A small query budget is spread across the enabled profiles, so three queries still search one
+title per profile rather than three titles from the first one.
+
+It is off by default (`JOB_WEB_SEARCH_ENABLED=false`) because it needs an AI model and costs one
+model call per page. Turn it on in **Settings → Job sources** once a model is configured. One run
+issues at most `JOB_WEB_SEARCH_MAX_QUERIES` searches and reads at most
+`JOB_WEB_SEARCH_MAX_PAGES` pages, sequentially, with a delay between requests.
+
+**Known limit:** DuckDuckGo's HTML endpoint challenges automated clients ("Select all squares
+containing a duck") after a handful of queries, and the block outlasts a short pause. The source
+stops immediately on that answer, reports it, and leaves the other sources running, but a
+back-to-back second run usually finds nothing. Keep `JOB_WEB_SEARCH_MAX_QUERIES` low (3 is the
+default) and do not schedule the crawl more often than every few hours. Free no-key job APIs
+(RemoteOK, Himalayas, Jobicy, Hacker News "Who is Hiring", Bundesagentur für Arbeit Jobsuche)
+and a key-based search API (for example Exa, which has free monthly credits) are the reliable
+ways to widen coverage.
+
+Login-walled networks and bot-hostile aggregators (LinkedIn, Xing, Glassdoor, Indeed and similar)
+are skipped instead of scraped. There is no CAPTCHA bypass, no authenticated scraping and no
+pagination walk; if DuckDuckGo serves a bot check the source reports that error and the other
+sources still run.
 
 The simulated job source is off by default (`ENABLE_MOCK_SOURCE=false`). The simulated PhD
 source is on by default, because the PhD workspace has no live source until `PHD_FEED_URL` is
@@ -165,8 +205,8 @@ set; it can be switched off in the PhD page. Every simulated row is marked **Sim
 or **simulated** and uses `example.com`/`example.org` links, so it is never presented as a live
 opportunity.
 
-There is no HTML scraper, CAPTCHA bypass or authenticated scraping. A failing source never
-deletes stored rows; the error is shown per source and on the overview page.
+A failing source never deletes stored rows; the error is shown per source and on the overview
+page.
 
 ## Match scoring
 
@@ -278,6 +318,9 @@ Copy `.env.example` to `.env`. Never commit `.env`.
 | `AI_MAX_INPUT_CHARS` | `24000` | Prompt size guard |
 | `DOCUMENTS_PATH` | `/app/documents` | Read-only document root |
 | `MAX_DOCUMENT_SIZE_MB` | `10` | Per-file size limit |
+| `JOB_WEB_SEARCH_ENABLED` | `false` | Turn on the DuckDuckGo web-search job source |
+| `JOB_WEB_SEARCH_MAX_QUERIES` | `3` | Searches per run (1–8); DuckDuckGo challenges automated clients, so keep this low |
+| `JOB_WEB_SEARCH_MAX_PAGES` | `6` | Result pages fetched and read per run (1–20) |
 | `PHD_FEED_URL` | empty | Permitted JSON feed of PhD positions; empty disables that source |
 | `PHD_FEED_LABEL` | `Configured PhD feed` | Display label for the feed |
 | `FRONTEND_ORIGIN` | `http://localhost:5173` | Allowed CORS origins (comma-separated) |
@@ -326,7 +369,8 @@ npm run build                 # tsc --noEmit && vite build
 ```
 
 Covered by automated tests: PDF/DOCX/TXT parsing, content-based document classification,
-profile extraction, source normalization, geography and language classification,
+profile extraction, source normalization, web-search query building and DuckDuckGo parsing,
+web-search page extraction and discovery integration, geography and language classification,
 calendar-month date rules, unknown dates, deduplication, deterministic job and PhD scoring,
 PhD deadline logic and re-verification, chat isolation, letter generation/versioning,
 MongoDB restart persistence, API validation, secret redaction, dashboard totals, funding and
@@ -342,6 +386,7 @@ language filters, simulated-fixture labelling, and frontend filter/sort query co
 | "No job sources are enabled" | Enable at least one source in **Settings** |
 | No PhD results | Enable the simulated source in the PhD page, or set `PHD_FEED_URL` to a permitted feed. An empty store is seeded automatically at startup; results are on-site, hybrid and remote positions in Europe, Turkey, the USA, Canada and Malaysia whose deadline has not passed |
 | AI actions return a model error | Set `OPENROUTER_API_KEY`, choose a model in Settings, press **Test connection** |
+| Web search finds nothing | It needs an AI model; check **Settings → OpenRouter model**. A "bot check" error means DuckDuckGo is rate-limiting: wait a few minutes or lower `JOB_WEB_SEARCH_MAX_QUERIES` |
 | Frontend cannot reach the API | Run Vite on the host (`npm run dev`), or use the `frontend` Compose profile |
 
 ## Adding job sources and keywords
@@ -351,14 +396,15 @@ language filters, simulated-fixture labelling, and frontend filter/sort query co
 - `targetTitles` adds extra job titles on top of the three profile title lists.
 - `includeKeywords` narrows discovery to specific terms; `excludeKeywords` removes
   unwanted roles.
-- Source toggles enable or disable Arbeitnow, Remotive, the simulated source and each PhD
-  source.
+- Source toggles enable or disable Arbeitnow, Remotive, web search, the simulated source and
+  each PhD source.
 
 **A new permitted job source:**
 
 1. Add `backend/src/services/jobs/adapters/<source>.ts` implementing `JobSourceAdapter`
-   (`searchJobs` returning `JobListing[]`). Use a documented public API or feed; do not
-   scrape against a site's terms, bypass CAPTCHAs or use authenticated pages.
+   (`searchJobs` returning `JobListing[]`). Use a documented public API or feed, or the
+   `websearch.ts` pattern for open-web discovery; do not bypass CAPTCHAs or use
+   authenticated pages.
 2. Register it in `backend/src/services/jobs/adapters/index.ts`.
 3. Add its id to the source map in `defaultSettings()` and to the Settings UI toggles.
 4. Add a fixture-based normalization test and a filter test; never call the live API in

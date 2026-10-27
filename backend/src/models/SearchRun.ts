@@ -11,6 +11,7 @@ const sourceResultSchema = new Schema(
     filtered: { type: Number, default: 0 },
     durationMs: { type: Number, default: 0 },
     error: { type: String, default: '' },
+    rejectionReasons: { type: Schema.Types.Mixed, default: {} },
   },
   { _id: false },
 );

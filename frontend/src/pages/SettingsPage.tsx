@@ -302,6 +302,11 @@ export function SettingsPage() {
                         {source.id === 'mock' ? <Badge tone="warning">test data</Badge> : null}
                       </p>
                       <p className="mt-1 text-xs leading-relaxed text-slate-400">{source.description}</p>
+                      {source.note ? (
+                        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                          {source.note}
+                        </p>
+                      ) : null}
                     </div>
                     <Toggle
                       checked={enabled}
@@ -314,9 +319,11 @@ export function SettingsPage() {
               );
             })}
             <p className="text-[11px] leading-relaxed text-slate-500">
-              Arbeitnow and Remotive are public APIs with documented access. Requests are bounded; credentials
-              are not required. The mock source is fictional and exists for end-to-end local testing. No CAPTCHAs
-              or access controls are bypassed.
+              Arbeitnow and Remotive are public APIs with documented access. Web search builds queries from your
+              target titles, reads each public result page once and extracts the vacancy with your AI model, so it
+              needs a model and one model call per page; DuckDuckGo challenges automated clients, so keep the query
+              count low. Login-walled networks are skipped. The mock source is fictional and exists for end-to-end
+              local testing. No CAPTCHAs or access controls are bypassed.
             </p>
           </div>
         </Card>

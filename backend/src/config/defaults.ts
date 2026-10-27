@@ -213,6 +213,8 @@ export function defaultSettings(): AppSettings {
       sources: {
         arbeitnow: true,
         remotive: true,
+        // Web search needs the AI key to turn pages into listings, so it stays opt-in.
+        web_search: env.JOB_WEB_SEARCH_ENABLED,
         mock: env.ENABLE_MOCK_SOURCE,
       },
     },
@@ -230,6 +232,7 @@ export function defaultSettings(): AppSettings {
     sources: {
       arbeitnow: { enabled: true },
       remotive: { enabled: true },
+      web_search: { enabled: env.JOB_WEB_SEARCH_ENABLED },
       mock: { enabled: env.ENABLE_MOCK_SOURCE },
       // The PhD workspace has no live source until PHD_FEED_URL is set, so the clearly labelled
       // simulated fixtures are on by default and can be switched off in the PhD page.
@@ -245,5 +248,6 @@ export const PROMPT_VERSIONS = {
   phdCoverLetter: 'phd-cover-letter-v1',
   chat: 'job-chat-v1',
   profileExtraction: 'profile-extract-v1',
+  jobExtraction: 'job-extract-v1',
   screeningQuestions: 'screening-questions-v1',
 } as const;

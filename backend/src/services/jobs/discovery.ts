@@ -102,6 +102,8 @@ export interface DiscoveryResult {
     filtered: number;
     durationMs: number;
     error: string;
+    /** Rejection counts by rule (for example location_mismatch), so empty runs can be explained. */
+    rejectionReasons: Record<string, number>;
   }>;
 }
 
@@ -121,6 +123,7 @@ export async function runDiscovery(options: {
       ...settings.search.targetTitles,
     ]),
   ];
+  const profileSkills = [...new Set(profiles.flatMap((profile) => profile.skills ?? []))];
 
   const requestedSources = options.overrides?.sources;
   const enabledAdapters = adapters.filter((adapter) => {
@@ -172,6 +175,7 @@ export async function runDiscovery(options: {
     const sourceStart = Date.now();
     const criteria: JobSearchCriteria = criteriaFromSettings(settings.search, {
       targetTitles,
+      profileSkills,
       maxJobs: perSourceBudget,
       ...(options.overrides?.keywords?.length ? { includeKeywords: options.overrides.keywords } : {}),
     });
@@ -193,16 +197,23 @@ export async function runDiscovery(options: {
 
     let filtered: JobListing[] = [];
     let rejected = 0;
+    const reasonCounts: Record<string, number> = {};
     if (listings.length > 0) {
       const batchUrls = new Set<string>();
       for (const listing of listings) {
         if (batchUrls.has(listing.canonicalUrl)) {
           rejected += 1;
+          reasonCounts.duplicate_in_batch = (reasonCounts.duplicate_in_batch ?? 0) + 1;
           continue;
         }
         const outcome = applyDeterministicFilters(listing, criteria);
         if (!outcome.included) {
           rejected += 1;
+          for (const reason of outcome.reasons) {
+            // Keyed by the rule name only, so per-keyword reasons group together.
+            const key = reason.split(':')[0]!;
+            reasonCounts[key] = (reasonCounts[key] ?? 0) + 1;
+          }
           continue;
         }
         batchUrls.add(listing.canonicalUrl);
@@ -212,6 +223,7 @@ export async function runDiscovery(options: {
       const limit = Math.min(perSourceBudget, remainingBudget);
       const budgetSkipped = Math.max(0, filtered.length - limit);
       if (budgetSkipped > 0) {
+        reasonCounts.run_budget_reached = (reasonCounts.run_budget_reached ?? 0) + budgetSkipped;
         // These listings passed the eligibility rules but were not processed because the run
         // budget was reached. Counting them keeps `found = created + updated + filtered` true,
         // so the run summary cannot look like listings vanished without a reason.
@@ -249,6 +261,7 @@ export async function runDiscovery(options: {
       filtered: rejected,
       durationMs: Date.now() - sourceStart,
       error: adapterError,
+      rejectionReasons: reasonCounts,
     });
   }
 
@@ -321,7 +334,7 @@ export async function getSourceConfigStatuses() {
     enabled: settings.sources[adapter.id]?.enabled ?? false,
     configured: adapter.isConfigured(),
     requiresConfiguration: adapter.requiresConfiguration,
-    note: adapter.isConfigured() ? 'Ready' : 'Disabled until configured',
+    note: adapter.note ?? (adapter.isConfigured() ? 'Ready' : 'Disabled until configured'),
   }));
 }
 

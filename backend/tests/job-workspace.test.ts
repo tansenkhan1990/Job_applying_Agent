@@ -71,6 +71,46 @@ describe('job dashboard filters and state', () => {
     expect(wrongCategory.body.total).toBe(0);
   });
 
+  it('tracks an application and reports it on the job detail and in the applied filter', async () => {
+    const applied = await seedFullStackJob();
+    const listings = await mockAdapter.searchJobs(criteria);
+    const sample = listings.find((item) => item.sourceJobId === 'mock-fullstack-senior')!;
+    const untouched = await seedJob(
+      { ...sample, sourceJobId: 'mock-fullstack-untouched', url: 'https://example.com/mock-jobs/untouched' },
+      { fingerprint: 'job-workspace-applied-fingerprint', discoveredAt: new Date() },
+    );
+
+    const before = await request(app).get(`/api/jobs/${String(applied._id)}`).expect(200);
+    expect(before.body.job.appliedAt).toBeNull();
+
+    const marked = await request(app)
+      .patch(`/api/jobs/${String(applied._id)}/state`)
+      .send({ applied: true })
+      .expect(200);
+    expect(marked.body.job.appliedAt).toBeTruthy();
+
+    // The detail page reads the same field, so opening the job shows it as already applied.
+    const detail = await request(app).get(`/api/jobs/${String(applied._id)}`).expect(200);
+    expect(detail.body.job.appliedAt).toBeTruthy();
+
+    const appliedOnly = await request(app).get('/api/jobs?applied=true').expect(200);
+    expect(appliedOnly.body.total).toBe(1);
+    expect(appliedOnly.body.items[0].id).toBe(String(applied._id));
+
+    const notApplied = await request(app).get('/api/jobs?applied=false').expect(200);
+    expect(notApplied.body.total).toBe(1);
+    expect(notApplied.body.items[0].id).toBe(String(untouched._id));
+
+    // Untracking clears the timestamp instead of leaving a stale application record.
+    const cleared = await request(app)
+      .patch(`/api/jobs/${String(applied._id)}/state`)
+      .send({ applied: false })
+      .expect(200);
+    expect(cleared.body.job.appliedAt).toBeNull();
+    const afterClear = await request(app).get('/api/jobs?applied=true').expect(200);
+    expect(afterClear.body.total).toBe(0);
+  });
+
   it('lists only postings inside the calendar-month window and recomputes old badges', async () => {
     const current = await seedFullStackJob();
     const listings = await mockAdapter.searchJobs(criteria);

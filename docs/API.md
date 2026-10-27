@@ -58,7 +58,7 @@ The API is intended for the local dashboard. CORS only accepts the origins liste
 | POST | `/jobs/:id/verify` | Re-check listing availability |
 | POST | `/jobs/:id/age-check` | Recompute posting-age eligibility |
 | POST | `/jobs/:id/classify-language` | Recompute the language classification from the stored text |
-| PATCH | `/jobs/:id/state` | `{ "saved": true, "reviewed": true }` |
+| PATCH | `/jobs/:id/state` | `{ "saved": true, "reviewed": true, "applied": true }` — `applied` sets/clears `appliedAt`, the application tracker shown when the job is opened |
 
 ### `GET /jobs` query parameters
 
@@ -78,7 +78,7 @@ The API is intended for the local dashboard. CORS only accepts the origins liste
 | `ageEligibility` | `Eligible`, `Too Recent`, `unknown` review view, `Expired` |
 | `postedWithinDays`, `postedAfter`, `postedBefore` | Date range, always clamped to the three-calendar-month floor |
 | `minScore`, `maxScore`, `profileKind` | Match-score filters |
-| `saved`, `reviewed`, `hasCoverLetter` | Personal state |
+| `saved`, `reviewed`, `applied`, `hasCoverLetter` | Personal state; `applied=true` lists only vacancies marked as already applied |
 | `sort` | `newest` (default), `oldest`, `score`, `company`, `title` |
 | `page`, `limit` | Pagination (`limit` max 100) |
 

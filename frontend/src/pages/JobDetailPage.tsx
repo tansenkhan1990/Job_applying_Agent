@@ -111,9 +111,11 @@ export function JobDetailPage() {
   });
 
   const saveState = useMutation({
-    mutationFn: (patch: { saved?: boolean; reviewed?: boolean }) =>
+    mutationFn: (patch: { saved?: boolean; reviewed?: boolean; applied?: boolean }) =>
       api<{ job: Job }>(`/jobs/${id}/state`, { method: 'PATCH', body: patch }),
-    onSuccess: () => {
+    onSuccess: (_result, patch) => {
+      if (patch.applied === true) toast.success('Tracked as applied. This vacancy now shows as already applied.');
+      if (patch.applied === false) toast.info('Application tracking removed for this vacancy.');
       void queryClient.invalidateQueries({ queryKey: ['job', id] });
       void queryClient.invalidateQueries({ queryKey: ['jobs'] });
     },
@@ -256,6 +258,13 @@ export function JobDetailPage() {
             >
               {job.saved ? 'Saved ★' : 'Save job'}
             </Button>
+            <Button
+              variant={job.appliedAt ? 'secondary' : 'ghost'}
+              onClick={() => saveState.mutate({ applied: !job.appliedAt })}
+              loading={saveState.isPending}
+            >
+              {job.appliedAt ? 'Applied ✓' : 'Mark as applied'}
+            </Button>
             <Button variant="secondary" onClick={() => verify.mutate()} loading={verify.isPending}>
               Verify availability
             </Button>
@@ -265,6 +274,24 @@ export function JobDetailPage() {
           </>
         }
       />
+
+      {job.appliedAt ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-200">
+          <p>
+            <strong>Already applied.</strong> You marked this vacancy as applied on{' '}
+            {formatDate(job.appliedAt)}. This tracker only records what you did yourself — this app never
+            submits an application.
+          </p>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => saveState.mutate({ applied: false })}
+            loading={saveState.isPending}
+          >
+            Undo
+          </Button>
+        </div>
+      ) : null}
 
       {job.status !== 'active' ? (
         <WarningNote>
@@ -618,6 +645,12 @@ export function JobDetailPage() {
               <div className="flex justify-between gap-3">
                 <dt className="text-slate-400">Work arrangement</dt>
                 <dd className="text-slate-200">{titleCase(job.workArrangement)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-400">Application</dt>
+                <dd className="text-slate-200">
+                  {job.appliedAt ? `Applied ${formatDate(job.appliedAt)}` : 'Not applied yet'}
+                </dd>
               </div>
               <div className="flex justify-between gap-3">
                 <dt className="text-slate-400">Last verified</dt>

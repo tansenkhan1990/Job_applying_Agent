@@ -2,9 +2,15 @@ import { getSettings } from '../../settingsService.js';
 import { arbeitnowAdapter } from './arbeitnow.js';
 import { mockAdapter } from './mock.js';
 import { remotiveAdapter } from './remotive.js';
+import { webSearchAdapter } from './websearch.js';
 import type { JobSourceAdapter, SourceConfigStatus } from '../types.js';
 
-export const adapters: JobSourceAdapter[] = [arbeitnowAdapter, remotiveAdapter, mockAdapter];
+export const adapters: JobSourceAdapter[] = [
+  arbeitnowAdapter,
+  remotiveAdapter,
+  webSearchAdapter,
+  mockAdapter,
+];
 
 export function getAdapter(id: string): JobSourceAdapter | undefined {
   return adapters.find((adapter) => adapter.id === id);
@@ -21,9 +27,11 @@ export async function sourceStatuses(): Promise<SourceConfigStatus[]> {
       enabled: setting?.enabled ?? false,
       configured: adapter.isConfigured(),
       requiresConfiguration: adapter.requiresConfiguration,
-      note: adapter.isConfigured()
-        ? 'No credentials required.'
-        : 'Requires configuration before it can return jobs.',
+      note:
+        adapter.note ??
+        (adapter.isConfigured()
+          ? 'No credentials required.'
+          : 'Requires configuration before it can return jobs.'),
     };
   });
 }

@@ -58,6 +58,8 @@ const jobListQuery = paginationSchema.extend({
   minSalary: z.coerce.number().min(0).max(1_000_000).optional(),
   saved: z.enum(['true', 'false']).optional(),
   reviewed: z.enum(['true', 'false']).optional(),
+  // "true" is the application tracker: only vacancies the user has marked as applied.
+  applied: z.enum(['true', 'false']).optional(),
   hasCoverLetter: z.enum(['true', 'false']).optional(),
   category: z
     .enum(['fullstack', 'backend', 'ai', 'devops_cloud', 'software'])
@@ -202,6 +204,8 @@ jobsRouter.get('/', async (req, res) => {
   if (query.saved === 'true') filter.saved = true;
   if (query.reviewed === 'false') filter.reviewedAt = null;
   if (query.reviewed === 'true') filter.reviewedAt = { $ne: null };
+  if (query.applied === 'true') filter.appliedAt = { $ne: null };
+  if (query.applied === 'false') filter.appliedAt = null;
   if (query.category) {
     filter.title = { $regex: CATEGORY_PATTERNS[query.category].source, $options: 'i' };
   }
@@ -321,6 +325,8 @@ jobsRouter.get('/:id', async (req, res) => {
 const jobStateSchema = z.object({
   saved: z.boolean().optional(),
   reviewed: z.boolean().optional(),
+  /** Marking as applied sets appliedAt to now; unmarking clears it again. */
+  applied: z.boolean().optional(),
 });
 
 const jobLetterSchema = z.object({
@@ -391,13 +397,14 @@ jobsRouter.get('/:id/cover-letters/:letterId/download', async (req, res) => {
   res.send(await renderLetterPdf(content));
 });
 
-/** Personal dashboard state: save/unsave and mark reviewed. */
+/** Personal dashboard state: save/unsave, mark reviewed, and track applications. */
 jobsRouter.patch('/:id/state', async (req, res) => {
   const id = objectIdSchema.parse(req.params.id);
   const body = jobStateSchema.parse(req.body ?? {});
   const update: Record<string, unknown> = {};
   if (body.saved !== undefined) update.saved = body.saved;
   if (body.reviewed !== undefined) update.reviewedAt = body.reviewed ? new Date() : null;
+  if (body.applied !== undefined) update.appliedAt = body.applied ? new Date() : null;
   const job = await JobModel.findByIdAndUpdate(id, { $set: update }, { new: true });
   if (!job) throw notFound('Job');
   res.json({ job: serialize(job) });

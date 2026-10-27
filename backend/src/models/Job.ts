@@ -60,6 +60,9 @@ const jobSchema = new Schema(
       updatedAt: { type: Date, default: null },
     },
     reviewedAt: { type: Date, default: null, index: true },
+    // Application tracker: set when the user marks this vacancy as applied. Stored as a date so
+    // the detail page can show when the application was sent.
+    appliedAt: { type: Date, default: null, index: true },
     // True/false only when the source explicitly states remote eligibility from Germany.
     remoteEligibleFromGermany: { type: Boolean, default: null },
 

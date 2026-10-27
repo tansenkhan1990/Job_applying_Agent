@@ -7,6 +7,7 @@
 export type JobScoreBand = '' | '90-100' | '80-89' | '70-79' | 'below-70';
 export type JobLanguageFilter = 'non_required' | 'eligible' | 'optional' | 'review' | 'all';
 export type JobReviewFilter = 'all' | 'unreviewed' | 'reviewed';
+export type JobAppliedFilter = 'all' | 'applied' | 'not_applied';
 export type JobLetterFilter = 'all' | 'yes' | 'no';
 export type JobDateEvidence = 'verified' | 'needs_review';
 export type JobSort = 'newest' | 'oldest' | 'score' | 'company' | 'title';
@@ -32,6 +33,8 @@ export interface JobFilters {
   seniority: string;
   savedOnly: boolean;
   reviewFilter: JobReviewFilter;
+  /** Application tracker filter: applied, not yet applied, or either. */
+  appliedFilter: JobAppliedFilter;
   letterFilter: JobLetterFilter;
   sort: JobSort;
 }
@@ -56,6 +59,7 @@ export const DEFAULT_JOB_FILTERS: JobFilters = {
   seniority: '',
   savedOnly: false,
   reviewFilter: 'all',
+  appliedFilter: 'all',
   letterFilter: 'all',
   sort: 'newest',
 };
@@ -117,6 +121,8 @@ export function buildJobListQuery(
   if (filters.reviewFilter !== 'all') {
     params.set('reviewed', filters.reviewFilter === 'reviewed' ? 'true' : 'false');
   }
+  if (filters.appliedFilter === 'applied') params.set('applied', 'true');
+  else if (filters.appliedFilter === 'not_applied') params.set('applied', 'false');
   if (filters.letterFilter !== 'all') {
     params.set('hasCoverLetter', filters.letterFilter === 'yes' ? 'true' : 'false');
   }

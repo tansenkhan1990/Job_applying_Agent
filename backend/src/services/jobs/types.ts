@@ -64,6 +64,8 @@ export interface JobSearchCriteria {
   targetTitles: string[];
   profileKinds: ProfileKind[];
   includeKeywords: string[];
+  /** Skills from the enabled candidate profiles (CV-derived), used to diversify search queries. */
+  profileSkills?: string[];
   excludeKeywords: string[];
   excludeInternships: boolean;
   excludeUnpaid: boolean;
@@ -79,6 +81,8 @@ export interface JobSourceAdapter {
   label: string;
   description: string;
   requiresConfiguration: boolean;
+  /** When set, this text is shown in the UI instead of the generic configuration note. */
+  note?: string;
   isConfigured(): boolean;
   searchJobs(criteria: JobSearchCriteria): Promise<JobListing[]>;
   /** Optional: fetch fresh details for a single listing. Return null when unsupported. */
